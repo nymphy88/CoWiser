@@ -7,6 +7,7 @@
     <title>ContextWhisper - Smart Summarizer</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
         body {
@@ -26,6 +27,13 @@
         .custom-scrollbar::-webkit-scrollbar-thumb:hover {
             background: #9ca3af;
         }
+        .file-drop-zone {
+            transition: all 0.2s ease;
+        }
+        .file-drop-zone:hover {
+            border-color: #4f46e5;
+            background-color: #f5f3ff;
+        }
     </style>
 <script type="importmap">
 {
@@ -40,5 +48,11 @@
 </head>
 <body>
     <div id="root"></div>
+    <script>
+        // Configure PDF.js worker
+        if (window.pdfjsLib) {
+            window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        }
+    </script>
 </body>
 </html>
