@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, GenerateContentResponse, Chat } from "@google/genai";
-import { Message, AppLanguage } from "../types";
+import { Message, AppLanguage, AnalysisState } from "../types";
 
 const API_KEY = process.env.API_KEY || "";
 
@@ -16,12 +16,41 @@ export class GeminiService {
     context: string, 
     excludeCode: boolean, 
     focusKeywords: string,
-    language: AppLanguage
+    language: AppLanguage,
+    config: { 
+      temperature: number; 
+      maxOutputTokens: number; 
+      customPersona?: string;
+      summaryType?: string;
+      complexity?: string;
+    }
   ): Promise<string> {
     const langNote = language === 'th' ? "Respond in Thai language." : "Respond in English language.";
+    const customInstruction = config.customPersona ? `\nUSER CUSTOM PERSONA/INSTRUCTION:\n${config.customPersona}` : "";
+    
+    const typeMap: Record<string, string> = {
+      'summary': 'a comprehensive summary',
+      'action_items': 'a list of actionable items and next steps',
+      'key_takeaways': 'the most important key takeaways',
+      'bullets': 'a concise bulleted list of main points'
+    };
+
+    const complexityMap: Record<string, string> = {
+      'simple': 'Use simple, easy-to-understand language suitable for a general audience.',
+      'standard': 'Use professional, standard language with balanced detail.',
+      'detailed': 'Provide a highly detailed analysis covering all nuances of the content.',
+      'technical': 'Use technical terminology and focus on architectural or implementation details.'
+    };
+
+    const typeStr = typeMap[config.summaryType || 'summary'];
+    const complexityStr = complexityMap[config.complexity || 'standard'];
+
     const prompt = `
-      Please provide a comprehensive summary of the following content.
+      Please provide ${typeStr} of the following content.
       ${langNote}
+      ${customInstruction}
+      
+      COMPLEXITY REQUIREMENT: ${complexityStr}
       
       ${excludeCode ? "IMPORTANT: Exclude all technical code blocks, snippets, or implementation details. Focus only on the conceptual discussion and outcomes." : "Include relevant code concepts if they are central to the discussion."}
       ${focusKeywords ? `ADDITIONAL FOCUS: Prioritize information related to: ${focusKeywords}` : ""}
@@ -37,7 +66,8 @@ export class GeminiService {
         model: "gemini-3-flash-preview",
         contents: prompt,
         config: {
-          temperature: 0.7,
+          temperature: config.temperature,
+          maxOutputTokens: config.maxOutputTokens,
           topP: 0.95,
         },
       });
@@ -78,16 +108,17 @@ export class GeminiService {
     }
   }
 
-  initChat(context: string, excludeCode: boolean, language: AppLanguage, history: Message[] = []) {
-    const langNote = language === 'th' ? "Always respond in Thai language." : "Always respond in English language.";
+  initChat(state: AnalysisState, history: Message[] = []) {
+    const langNote = state.language === 'th' ? "Always respond in Thai language." : "Always respond in English language.";
     
-    // Map local message history to Gemini format, filtering out UI errors
     const geminiHistory = history
       .filter(m => !m.isError)
       .map(m => ({
         role: m.role,
         parts: [{ text: m.content }]
       }));
+
+    const customInstruction = state.customPersona ? `\nUSER CUSTOM PERSONA/INSTRUCTION:\n${state.customPersona}` : "";
 
     this.chatInstance = this.ai.chats.create({
       model: 'gemini-3-flash-preview',
@@ -99,15 +130,18 @@ export class GeminiService {
           
           CONTEXT PROVIDED BY USER:
           ---
-          ${context}
+          ${state.rawContext}
           ---
 
           RULES:
           1. Answer questions strictly based on the provided context.
-          2. ${excludeCode ? "If the user asks for code, explain the logic but do not provide the actual code blocks as per their 'Exclude Code' preference." : "You may provide code snippets if requested and present in the context."}
-          3. If the answer is not in the context, state that clearly in the target language (${language}).
+          2. ${state.excludeCode ? "If the user asks for code, explain the logic but do not provide the actual code blocks as per their 'Exclude Code' preference." : "You may provide code snippets if requested and present in the context."}
+          3. If the answer is not in the context, state that clearly in the target language (${state.language}).
           4. Be concise and professional.
+          ${customInstruction}
         `,
+        temperature: state.temperature,
+        maxOutputTokens: state.maxOutputTokens
       },
     });
   }

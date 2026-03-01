@@ -1,5 +1,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { AnalysisState, Message, TabType, AppLanguage, SummaryHistoryItem } from './types';
 import { geminiService } from './services/gemini';
 
@@ -38,7 +40,31 @@ const translations = {
     view: 'View',
     historyBtn: 'History',
     restoreConfirm: 'Are you sure you want to restore this version? This will overwrite your current summary and context.',
-    generatedOn: 'Generated on'
+    generatedOn: 'Generated on',
+    searchPlaceholder: 'Search messages...',
+    settingsTitle: 'Model Configuration',
+    temperature: 'Temperature',
+    maxTokens: 'Max Output Tokens',
+    personaLabel: 'Custom Persona / Instructions',
+    personaPlaceholder: 'e.g. You are a senior software architect who explains concepts simply...',
+    saveSettings: 'Apply Changes',
+    typeLabel: 'Result Type',
+    complexityLabel: 'Complexity',
+    editMode: 'Edit Mode',
+    undo: 'Undo',
+    redo: 'Redo',
+    types: {
+      summary: 'Summary',
+      action_items: 'Action Items',
+      key_takeaways: 'Key Takeaways',
+      bullets: 'Bullet Points'
+    },
+    complexities: {
+      simple: 'Simple',
+      standard: 'Standard',
+      detailed: 'Detailed',
+      technical: 'Technical'
+    }
   },
   th: {
     sidebarTitle: 'ContextWhisper',
@@ -74,7 +100,31 @@ const translations = {
     view: 'ดู',
     historyBtn: 'ประวัติ',
     restoreConfirm: 'คุณแน่ใจหรือไม่ว่าต้องการกู้คืนเวอร์ชันนี้? การดำเนินการนี้จะเขียนทับสรุปและเนื้อหาปัจจุบันของคุณ',
-    generatedOn: 'สร้างเมื่อ'
+    generatedOn: 'สร้างเมื่อ',
+    searchPlaceholder: 'ค้นหาข้อความ...',
+    settingsTitle: 'การตั้งค่าโมเดล',
+    temperature: 'อุณหภูมิ (Temperature)',
+    maxTokens: 'จำกัดจำนวนคำตอบ (Max Tokens)',
+    personaLabel: 'กำหนดบุคลิกภาพ / คำสั่งเพิ่มเติม',
+    personaPlaceholder: 'เช่น คุณเป็นวิศวกรซอฟต์แวร์อาวุโสที่อธิบายแนวคิดอย่างง่าย...',
+    saveSettings: 'ปรับใช้การเปลี่ยนแปลง',
+    typeLabel: 'รูปแบบผลลัพธ์',
+    complexityLabel: 'ระดับความละเอียด',
+    editMode: 'โหมดแก้ไข',
+    undo: 'เลิกทำ',
+    redo: 'ทำซ้ำ',
+    types: {
+      summary: 'บทสรุป',
+      action_items: 'รายการสิ่งที่ต้องทำ',
+      key_takeaways: 'ประเด็นสำคัญ',
+      bullets: 'รายการหัวข้อ'
+    },
+    complexities: {
+      simple: 'เข้าใจง่าย',
+      standard: 'มาตรฐาน',
+      detailed: 'ละเอียด',
+      technical: 'เชิงเทคนิค'
+    }
   }
 };
 
@@ -93,6 +143,11 @@ const App: React.FC = () => {
           ...parsed, 
           isProcessing: false, 
           error: null,
+          temperature: parsed.temperature ?? 0.7,
+          maxOutputTokens: parsed.maxOutputTokens ?? 2048,
+          customPersona: parsed.customPersona ?? '',
+          summaryType: parsed.summaryType ?? 'summary',
+          complexity: parsed.complexity ?? 'standard',
           summaryHistory: (parsed.summaryHistory || []).map((h: any) => ({
             ...h,
             timestamp: new Date(h.timestamp)
@@ -109,8 +164,14 @@ const App: React.FC = () => {
       isProcessing: false,
       excludeCode: false,
       focusKeywords: '',
+      summaryType: 'summary',
+      complexity: 'standard',
       error: null,
-      language: 'en'
+      language: 'en',
+      uploadProgress: 0,
+      temperature: 0.7,
+      maxOutputTokens: 2048,
+      customPersona: ''
     };
   });
 
@@ -132,6 +193,7 @@ const App: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<TabType>(TabType.SUMMARY);
   const [inputMessage, setInputMessage] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
   const [isChatting, setIsChatting] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -140,14 +202,30 @@ const App: React.FC = () => {
   const [isSummarizingChat, setIsSummarizingChat] = useState(false);
   const [showChatSummaryModal, setShowChatSummaryModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [isEditingSummary, setIsEditingSummary] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(384); // Default 384px (w-96)
+  const [isResizing, setIsResizing] = useState(false);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
   const [past, setPast] = useState<string[]>([]);
   const [future, setFuture] = useState<string[]>([]);
+
+  const [summaryPast, setSummaryPast] = useState<string[]>([]);
+  const [summaryFuture, setSummaryFuture] = useState<string[]>([]);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const t = translations[state.language];
+
+  useEffect(() => {
+    const handleWindowResize = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    window.addEventListener('resize', handleWindowResize);
+    return () => window.removeEventListener('resize', handleWindowResize);
+  }, []);
 
   useEffect(() => {
     const { error, isProcessing, ...persistableState } = state;
@@ -160,7 +238,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (state.summary && state.rawContext) {
-      geminiService.initChat(state.rawContext, state.excludeCode, state.language, messages);
+      geminiService.initChat(state, messages);
     }
   }, []);
 
@@ -169,10 +247,10 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    if (activeTab === TabType.CHAT) {
+    if (activeTab === TabType.CHAT && !searchTerm) {
       scrollToBottom();
     }
-  }, [messages, isChatting, activeTab]);
+  }, [messages, isChatting, activeTab, searchTerm]);
 
   const updateContextWithHistory = useCallback((newText: string) => {
     if (newText === state.rawContext) return;
@@ -199,37 +277,119 @@ const App: React.FC = () => {
     setState(prev => ({ ...prev, rawContext: next }));
   };
 
-  const extractTextFromPdf = async (file: File): Promise<string> => {
+  const updateSummaryWithHistory = useCallback((newText: string) => {
+    if (newText === state.summary) return;
+    setSummaryPast(prev => [...prev, state.summary]);
+    setSummaryFuture([]);
+    setState(prev => ({ ...prev, summary: newText }));
+  }, [state.summary]);
+
+  const handleSummaryUndo = () => {
+    if (summaryPast.length === 0) return;
+    const previous = summaryPast[summaryPast.length - 1];
+    const newPast = summaryPast.slice(0, summaryPast.length - 1);
+    setSummaryFuture(prev => [state.summary, ...prev]);
+    setSummaryPast(newPast);
+    setState(prev => ({ ...prev, summary: previous }));
+  };
+
+  const handleSummaryRedo = () => {
+    if (summaryFuture.length === 0) return;
+    const next = summaryFuture[0];
+    const newFuture = summaryFuture.slice(1);
+    setSummaryPast(prev => [...prev, state.summary]);
+    setSummaryFuture(newFuture);
+    setState(prev => ({ ...prev, summary: next }));
+  };
+
+  const startResizing = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+  }, []);
+
+  const stopResizing = useCallback(() => {
+    setIsResizing(false);
+  }, []);
+
+  const resize = useCallback((e: MouseEvent) => {
+    if (isResizing) {
+      const newWidth = e.clientX;
+      if (newWidth > 280 && newWidth < 600) {
+        setSidebarWidth(newWidth);
+      }
+    }
+  }, [isResizing]);
+
+  useEffect(() => {
+    window.addEventListener('mousemove', resize);
+    window.addEventListener('mouseup', stopResizing);
+    return () => {
+      window.removeEventListener('mousemove', resize);
+      window.removeEventListener('mouseup', stopResizing);
+    };
+  }, [resize, stopResizing]);
+
+  const extractTextFromPdf = async (file: File, onProgress: (progress: number) => void): Promise<string> => {
     const arrayBuffer = await file.arrayBuffer();
     const pdfjsLib = (window as any).pdfjsLib;
     const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+    
+    // Track loading progress
+    loadingTask.onProgress = (progressData: { loaded: number; total: number }) => {
+      if (progressData.total > 0) {
+        onProgress((progressData.loaded / progressData.total) * 30); // First 30% for loading
+      }
+    };
+
     const pdf = await loadingTask.promise;
     let fullText = '';
-    for (let i = 1; i <= pdf.numPages; i++) {
+    const numPages = pdf.numPages;
+    
+    for (let i = 1; i <= numPages; i++) {
       const page = await pdf.getPage(i);
       const textContent = await page.getTextContent();
       const pageText = textContent.items.map((item: any) => item.str).join(' ');
       fullText += pageText + '\n';
+      
+      // Update progress from 30% to 100%
+      onProgress(30 + ((i / numPages) * 70));
     }
     return fullText;
   };
 
   const handleFile = async (file: File) => {
     setIsUploading(true);
-    setState(prev => ({ ...prev, error: null }));
+    setState(prev => ({ ...prev, error: null, uploadProgress: 0 }));
     try {
       let text = '';
       if (file.type === 'application/pdf') {
-        text = await extractTextFromPdf(file);
+        text = await extractTextFromPdf(file, (progress) => {
+          setState(prev => ({ ...prev, uploadProgress: Math.round(progress) }));
+        });
       } else if (file.type === 'text/plain' || file.name.endsWith('.txt')) {
-        text = await file.text();
+        // For large text files, we can use a FileReader and track progress
+        text = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onprogress = (event) => {
+            if (event.lengthComputable) {
+              const progress = Math.round((event.loaded / event.total) * 100);
+              setState(prev => ({ ...prev, uploadProgress: progress }));
+            }
+          };
+          reader.onload = (e) => resolve(e.target?.result as string || '');
+          reader.onerror = (e) => reject(new Error('Failed to read text file'));
+          reader.readAsText(file);
+        });
       } else {
         throw new Error(state.language === 'th' ? 'ไม่รองรับประเภทไฟล์นี้ โปรดอัปโหลด .txt หรือ .pdf' : 'Unsupported file type. Please upload a .txt or .pdf file.');
       }
       const finalContent = text.trim();
       if (finalContent) updateContextWithHistory(finalContent);
+      setState(prev => ({ ...prev, uploadProgress: 100 }));
+      // Small delay to show 100%
+      setTimeout(() => setState(prev => ({ ...prev, uploadProgress: 0 })), 1000);
     } catch (err: any) {
-      setState(prev => ({ ...prev, error: err.message }));
+      setState(prev => ({ ...prev, error: err.message, uploadProgress: 0 }));
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -274,7 +434,14 @@ const App: React.FC = () => {
         state.rawContext,
         state.excludeCode,
         state.focusKeywords,
-        state.language
+        state.language,
+        { 
+          temperature: state.temperature, 
+          maxOutputTokens: state.maxOutputTokens, 
+          customPersona: state.customPersona,
+          summaryType: state.summaryType,
+          complexity: state.complexity
+        }
       );
       
       const newHistoryItem: SummaryHistoryItem = {
@@ -286,14 +453,15 @@ const App: React.FC = () => {
         focusKeywords: currentFocus
       };
 
-      setState(prev => ({ 
-        ...prev, 
+      const newState = { 
+        ...state, 
         summary: result, 
         isProcessing: false,
-        summaryHistory: [newHistoryItem, ...prev.summaryHistory].slice(0, 20)
-      }));
+        summaryHistory: [newHistoryItem, ...state.summaryHistory].slice(0, 20)
+      };
+      setState(newState);
       
-      geminiService.initChat(state.rawContext, state.excludeCode, state.language, []);
+      geminiService.initChat(newState, []);
       setMessages([]); 
     } catch (err: any) {
       setState(prev => ({ ...prev, isProcessing: false, error: err.message }));
@@ -302,15 +470,16 @@ const App: React.FC = () => {
 
   const handleRestoreHistory = (item: SummaryHistoryItem) => {
     if (window.confirm(t.restoreConfirm)) {
-      setState(prev => ({
-        ...prev,
+      const newState = {
+        ...state,
         summary: item.summary,
         rawContext: item.rawContext,
         excludeCode: item.excludeCode,
         focusKeywords: item.focusKeywords
-      }));
+      };
+      setState(newState);
       setShowHistoryModal(false);
-      geminiService.initChat(item.rawContext, item.excludeCode, state.language, []);
+      geminiService.initChat(newState, []);
       setMessages([]);
     }
   };
@@ -375,7 +544,7 @@ const App: React.FC = () => {
       setMessages([]);
       localStorage.removeItem(STORAGE_KEYS.MESSAGES);
       if (state.rawContext) {
-        geminiService.initChat(state.rawContext, state.excludeCode, state.language, []);
+        geminiService.initChat(state, []);
       }
     }
   };
@@ -400,10 +569,17 @@ const App: React.FC = () => {
     }
   };
 
+  const filteredMessages = messages.filter(m => 
+    m.content.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-gray-50 text-gray-900">
       {/* Sidebar */}
-      <aside className="w-full md:w-96 bg-white border-r border-gray-200 flex flex-col p-6 shadow-sm overflow-y-auto">
+      <aside 
+        style={{ width: isMobile ? '100%' : `${sidebarWidth}px` }}
+        className="bg-white border-r border-gray-200 flex flex-col p-6 shadow-sm overflow-y-auto relative group/sidebar"
+      >
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-3">
             <div className="bg-indigo-600 text-white p-2 rounded-lg">
@@ -416,7 +592,10 @@ const App: React.FC = () => {
               <button onClick={() => setState(prev => ({ ...prev, language: 'en' }))} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${state.language === 'en' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}>EN</button>
               <button onClick={() => setState(prev => ({ ...prev, language: 'th' }))} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${state.language === 'th' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}>TH</button>
             </div>
-            <button onClick={handleResetAll} className="text-[10px] text-gray-400 hover:text-red-500 font-medium transition-colors uppercase tracking-wider" title="Reset everything">Reset App</button>
+            <div className="flex gap-3">
+              <button onClick={() => setShowSettingsModal(true)} className="text-[10px] text-gray-400 hover:text-indigo-600 font-medium transition-colors uppercase tracking-wider"><i className="fas fa-cog mr-1"></i>Settings</button>
+              <button onClick={handleResetAll} className="text-[10px] text-gray-400 hover:text-red-500 font-medium transition-colors uppercase tracking-wider" title="Reset everything">Reset</button>
+            </div>
           </div>
         </div>
 
@@ -424,23 +603,48 @@ const App: React.FC = () => {
           <div className="space-y-3">
             <label className="block text-sm font-semibold text-gray-700">{t.contentSource}</label>
             
-            {/* File Drop Zone Component */}
             <div 
               onClick={() => fileInputRef.current?.click()}
-              onDragOver={onDragOver}
+              onDragOver={(e) => {
+                e.preventDefault();
+                const items = Array.from(e.dataTransfer.items);
+                const hasSupportedFile = items.some(item => 
+                  item.kind === 'file' && 
+                  (item.type === 'text/plain' || item.type === 'application/pdf' || item.type === '')
+                );
+                if (hasSupportedFile) setIsDragging(true);
+              }}
               onDragLeave={onDragLeave}
-              onDrop={onDrop}
-              className={`file-drop-zone p-6 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center gap-3 cursor-pointer transition-all duration-300 ${isDragging ? 'border-indigo-600 bg-indigo-50' : 'border-gray-200 bg-gray-50 hover:border-indigo-300'} ${isUploading ? 'pointer-events-none opacity-60' : ''}`}
+              onDrop={(e) => {
+                e.preventDefault();
+                setIsDragging(false);
+                const file = e.dataTransfer.files?.[0];
+                if (file && (file.type === 'text/plain' || file.name.endsWith('.txt') || file.type === 'application/pdf')) {
+                  handleFile(file);
+                } else if (file) {
+                  setState(prev => ({ ...prev, error: state.language === 'th' ? 'รองรับเฉพาะไฟล์ .txt และ .pdf เท่านั้น' : 'Only .txt and .pdf files are supported.' }));
+                }
+              }}
+              className={`file-drop-zone p-6 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center gap-3 cursor-pointer transition-all duration-300 ${isDragging ? 'border-indigo-600 bg-indigo-50 scale-[1.02]' : 'border-gray-200 bg-gray-50 hover:border-indigo-300'} ${isUploading ? 'pointer-events-none opacity-60' : ''}`}
             >
               {isUploading ? (
-                <>
-                  <i className="fas fa-circle-notch fa-spin text-2xl text-indigo-600"></i>
-                  <p className="text-xs font-medium text-indigo-600 animate-pulse">{t.reading}</p>
-                </>
+                <div className="w-full space-y-3">
+                  <div className="flex items-center justify-center gap-3">
+                    <i className="fas fa-circle-notch fa-spin text-2xl text-indigo-600"></i>
+                    <p className="text-xs font-bold text-indigo-600 animate-pulse">{t.reading}</p>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
+                    <div 
+                      className="bg-indigo-600 h-full transition-all duration-300 ease-out" 
+                      style={{ width: `${state.uploadProgress}%` }}
+                    ></div>
+                  </div>
+                  <p className="text-[10px] text-center text-gray-400 font-mono">{state.uploadProgress}%</p>
+                </div>
               ) : (
                 <>
-                  <div className={`p-3 rounded-full transition-colors ${isDragging ? 'bg-indigo-600 text-white' : 'bg-white text-indigo-500 shadow-sm'}`}>
-                    <i className="fas fa-cloud-upload-alt text-xl"></i>
+                  <div className={`p-4 rounded-2xl transition-all ${isDragging ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-indigo-500 shadow-sm'}`}>
+                    <i className="fas fa-file-import text-2xl"></i>
                   </div>
                   <div className="text-center">
                     <p className="text-xs font-bold text-gray-700">{t.dropZoneText}</p>
@@ -452,17 +656,46 @@ const App: React.FC = () => {
             </div>
 
             <div className="flex flex-col gap-1">
-              <div className="flex items-center gap-2 mb-1 px-1">
-                <button onClick={handleUndo} disabled={past.length === 0} className="text-xs text-gray-400 hover:text-indigo-600 disabled:opacity-30 transition-all p-1" title="Undo"><i className="fas fa-undo"></i></button>
-                <button onClick={handleRedo} disabled={future.length === 0} className="text-xs text-gray-400 hover:text-indigo-600 disabled:opacity-30 transition-all p-1" title="Redo"><i className="fas fa-redo"></i></button>
+              <div className="flex items-center justify-between mb-1 px-1">
+                <div className="flex items-center gap-2">
+                  <button onClick={handleUndo} disabled={past.length === 0} className="text-xs text-gray-400 hover:text-indigo-600 disabled:opacity-30 transition-all p-1" title="Undo"><i className="fas fa-undo"></i></button>
+                  <button onClick={handleRedo} disabled={future.length === 0} className="text-xs text-gray-400 hover:text-indigo-600 disabled:opacity-30 transition-all p-1" title="Redo"><i className="fas fa-redo"></i></button>
+                </div>
+                <span className="text-[10px] text-gray-400 font-mono uppercase tracking-widest">Source Preview</span>
               </div>
               <div className="relative group">
-                <textarea className="w-full h-40 p-4 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all outline-none resize-none text-sm custom-scrollbar bg-white shadow-inner" placeholder={t.placeholder} value={state.rawContext} onChange={(e) => updateContextWithHistory(e.target.value)} />
-                {state.rawContext && <button onClick={() => updateContextWithHistory('')} className="absolute top-2 right-2 text-gray-400 hover:text-red-500 transition-colors bg-white/80 p-1 rounded-md" title="Clear context"><i className="fas fa-times-circle"></i></button>}
+                <textarea className="w-full min-h-[160px] p-4 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all outline-none resize-y text-sm custom-scrollbar bg-white shadow-inner" placeholder={t.placeholder} value={state.rawContext} onChange={(e) => updateContextWithHistory(e.target.value)} />
+                {state.rawContext && <button onClick={() => updateContextWithHistory('')} className="absolute top-2 right-4 text-gray-400 hover:text-red-500 transition-colors bg-white/80 p-1 rounded-md" title="Clear context"><i className="fas fa-times-circle"></i></button>}
               </div>
             </div>
           </div>
           <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider px-1">{t.typeLabel}</label>
+                <select 
+                  className="w-full p-2.5 bg-white border border-gray-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500 outline-none transition-all cursor-pointer"
+                  value={state.summaryType}
+                  onChange={(e) => setState(prev => ({ ...prev, summaryType: e.target.value as any }))}
+                >
+                  {Object.entries(t.types).map(([key, label]) => (
+                    <option key={key} value={key}>{label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider px-1">{t.complexityLabel}</label>
+                <select 
+                  className="w-full p-2.5 bg-white border border-gray-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500 outline-none transition-all cursor-pointer"
+                  value={state.complexity}
+                  onChange={(e) => setState(prev => ({ ...prev, complexity: e.target.value as any }))}
+                >
+                  {Object.entries(t.complexities).map(([key, label]) => (
+                    <option key={key} value={key}>{label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
             <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">
               <label className="text-sm font-medium text-gray-700 cursor-pointer" htmlFor="exclude-code">{t.excludeCode}</label>
               <input id="exclude-code" type="checkbox" className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500" checked={state.excludeCode} onChange={(e) => setState(prev => ({ ...prev, excludeCode: e.target.checked }))} />
@@ -477,6 +710,12 @@ const App: React.FC = () => {
           </button>
           {state.error && <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-xs"><i className="fas fa-exclamation-circle mr-2"></i>{state.error}</div>}
         </div>
+
+        {/* Resize Handle */}
+        <div 
+          onMouseDown={startResizing}
+          className="hidden md:block absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-indigo-400 transition-colors z-10"
+        />
       </aside>
 
       {/* Main Content */}
@@ -488,22 +727,74 @@ const App: React.FC = () => {
           </div>
           
           <div className="flex items-center gap-2 pb-1">
+            {activeTab === TabType.SUMMARY && state.summary && (
+              <div className="flex items-center gap-2 mr-2 pr-2 border-r border-gray-200">
+                <div className="flex items-center gap-1 mr-2">
+                  <button 
+                    onClick={handleSummaryUndo} 
+                    disabled={summaryPast.length === 0} 
+                    className="text-xs text-gray-400 hover:text-indigo-600 disabled:opacity-30 transition-all p-2 rounded-lg hover:bg-gray-50" 
+                    title={t.undo}
+                  >
+                    <i className="fas fa-undo"></i>
+                  </button>
+                  <button 
+                    onClick={handleSummaryRedo} 
+                    disabled={summaryFuture.length === 0} 
+                    className="text-xs text-gray-400 hover:text-indigo-600 disabled:opacity-30 transition-all p-2 rounded-lg hover:bg-gray-50" 
+                    title={t.redo}
+                  >
+                    <i className="fas fa-redo"></i>
+                  </button>
+                </div>
+                <button 
+                  onClick={() => setIsEditingSummary(!isEditingSummary)} 
+                  className={`text-xs font-bold px-4 py-2 rounded-lg transition-all flex items-center gap-2 ${isEditingSummary ? 'bg-indigo-600 text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                >
+                  <i className={`fas ${isEditingSummary ? 'fa-check' : 'fa-edit'}`}></i>
+                  {t.editMode}
+                </button>
+              </div>
+            )}
             {activeTab === TabType.SUMMARY && state.summaryHistory.length > 0 && (
               <button onClick={() => setShowHistoryModal(true)} className="text-xs bg-gray-50 text-gray-600 hover:bg-gray-100 font-semibold px-4 py-2 rounded-lg transition-all flex items-center gap-1 border border-gray-200">
                 <i className="fas fa-history"></i>
                 {t.historyBtn}
               </button>
             )}
-            {activeTab === TabType.CHAT && messages.length > 0 && (
-              <>
-                <button onClick={handleSummarizeChat} disabled={isSummarizingChat} className="text-xs bg-indigo-50 text-indigo-600 hover:bg-indigo-100 font-semibold px-4 py-2 rounded-lg transition-all flex items-center gap-1">
-                  {isSummarizingChat ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-magic"></i>}
-                  {t.summarizeChat}
-                </button>
-                <button onClick={handleClearHistory} className="text-xs text-red-500 hover:text-red-700 font-medium px-4 py-2 rounded-lg hover:bg-red-50 transition-all flex items-center gap-1">
-                  <i className="fas fa-trash-alt"></i>{t.clearChat}
-                </button>
-              </>
+            {activeTab === TabType.CHAT && (
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <input 
+                    type="text" 
+                    placeholder={t.searchPlaceholder}
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="text-xs p-2 pl-8 pr-8 border border-gray-200 rounded-lg focus:ring-1 focus:ring-indigo-500 outline-none w-48 transition-all"
+                  />
+                  <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-[10px] text-gray-400"></i>
+                  {searchTerm && (
+                    <button 
+                      onClick={() => setSearchTerm('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                      title="Clear search"
+                    >
+                      <i className="fas fa-times text-[10px]"></i>
+                    </button>
+                  )}
+                </div>
+                {messages.length > 0 && (
+                  <>
+                    <button onClick={handleSummarizeChat} disabled={isSummarizingChat} className="text-xs bg-indigo-50 text-indigo-600 hover:bg-indigo-100 font-semibold px-4 py-2 rounded-lg transition-all flex items-center gap-1">
+                      {isSummarizingChat ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-magic"></i>}
+                      {t.summarizeChat}
+                    </button>
+                    <button onClick={handleClearHistory} className="text-xs text-red-500 hover:text-red-700 font-medium px-4 py-2 rounded-lg hover:bg-red-50 transition-all flex items-center gap-1">
+                      <i className="fas fa-trash-alt"></i>{t.clearChat}
+                    </button>
+                  </>
+                )}
+              </div>
             )}
           </div>
         </nav>
@@ -531,20 +822,42 @@ const App: React.FC = () => {
                       <button onClick={handleExport} className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-semibold rounded-lg transition-colors" title={t.export}><i className="fas fa-file-export"></i>{t.export}</button>
                     </div>
                   </div>
-                  <div className="text-gray-700 leading-relaxed whitespace-pre-wrap">{state.summary}</div>
+                  {isEditingSummary ? (
+                    <textarea
+                      className="w-full min-h-[400px] p-6 border border-indigo-100 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-gray-700 leading-relaxed resize-y bg-indigo-50/30 font-sans"
+                      value={state.summary}
+                      onChange={(e) => updateSummaryWithHistory(e.target.value)}
+                    />
+                  ) : (
+                    <div className="text-gray-700 leading-relaxed markdown-body">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {state.summary}
+                      </ReactMarkdown>
+                    </div>
+                  )}
                 </article>
               )}
             </div>
           ) : (
             <div className="max-w-4xl mx-auto h-full flex flex-col">
               <div className="flex-1 overflow-y-auto space-y-4 pb-4 custom-scrollbar">
-                {messages.length === 0 && (
-                  <div className="flex flex-col items-center justify-center py-20 text-gray-400">
-                    <i className="fas fa-comments text-6xl mb-4 opacity-20"></i>
-                    <p className="text-center whitespace-pre-wrap">{t.chatDefault}</p>
+                {searchTerm && filteredMessages.length > 0 && (
+                  <div className="flex items-center justify-between mb-4 px-2">
+                    <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest bg-indigo-50 px-2 py-1 rounded">
+                      {state.language === 'th' ? `พบ ${filteredMessages.length} รายการ` : `Found ${filteredMessages.length} ${filteredMessages.length === 1 ? 'match' : 'matches'}`}
+                    </span>
+                    <button onClick={() => setSearchTerm('')} className="text-[10px] font-bold text-gray-400 hover:text-gray-600 uppercase tracking-widest">
+                      {state.language === 'th' ? 'ล้างการค้นหา' : 'Clear Search'}
+                    </button>
                   </div>
                 )}
-                {messages.map((msg, idx) => (
+                {filteredMessages.length === 0 && (
+                  <div className="flex flex-col items-center justify-center py-20 text-gray-400">
+                    <i className="fas fa-comments text-6xl mb-4 opacity-20"></i>
+                    <p className="text-center whitespace-pre-wrap">{searchTerm ? 'No matches found.' : t.chatDefault}</p>
+                  </div>
+                )}
+                {filteredMessages.map((msg, idx) => (
                   <div key={idx} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
                     <div className="mb-1 px-2 flex items-center gap-2">
                       <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{msg.role === 'user' ? (state.language === 'th' ? 'คุณ' : 'You') : (state.language === 'th' ? 'ผู้ช่วย' : 'Assistant')}</span>
@@ -552,7 +865,11 @@ const App: React.FC = () => {
                     <div className={`max-w-[85%] p-4 rounded-2xl shadow-sm relative group ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : msg.isError ? 'bg-red-50 text-red-800 border border-red-200 rounded-tl-none' : 'bg-white text-gray-800 border border-gray-100 rounded-tl-none'}`}>
                       <div className="flex items-start gap-2">
                         {msg.isError && <i className="fas fa-exclamation-triangle mt-1"></i>}
-                        <div className="text-sm whitespace-pre-wrap">{msg.content}</div>
+                        <div className="text-sm markdown-body">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {msg.content}
+                          </ReactMarkdown>
+                        </div>
                       </div>
                       <div className="flex items-center justify-between mt-2 pt-2 border-t border-black/5">
                         <span className={`text-[10px] block opacity-50`}>{msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
@@ -574,7 +891,7 @@ const App: React.FC = () => {
                     </div>
                   </div>
                 )}
-                <div ref={chatEndRef} />
+                {!searchTerm && <div ref={chatEndRef} />}
               </div>
 
               <div className="pt-4 mt-auto border-t border-gray-100">
@@ -590,6 +907,80 @@ const App: React.FC = () => {
           )}
         </div>
       </main>
+
+      {/* Settings Modal */}
+      {showSettingsModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in duration-200">
+            <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="text-xl font-bold flex items-center gap-2">
+                <i className="fas fa-sliders-h text-indigo-600"></i>
+                {t.settingsTitle}
+              </h3>
+              <button onClick={() => setShowSettingsModal(false)} className="text-gray-400 hover:text-gray-600 p-2 rounded-full hover:bg-gray-100 transition-colors">
+                <i className="fas fa-times text-xl"></i>
+              </button>
+            </div>
+            <div className="p-8 space-y-6 overflow-y-auto max-h-[70vh] custom-scrollbar">
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <label className="text-sm font-semibold text-gray-700">{t.temperature}</label>
+                  <span className="text-xs font-mono bg-indigo-50 text-indigo-600 px-2 py-1 rounded-md">{state.temperature.toFixed(2)}</span>
+                </div>
+                <input 
+                  type="range" min="0" max="2" step="0.05"
+                  className="w-full accent-indigo-600"
+                  value={state.temperature}
+                  onChange={(e) => setState(prev => ({ ...prev, temperature: parseFloat(e.target.value) }))}
+                />
+                <div className="flex justify-between text-[10px] text-gray-400 uppercase font-medium">
+                  <span>Precise</span>
+                  <span>Creative</span>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <label className="text-sm font-semibold text-gray-700">{t.maxTokens}</label>
+                  <input 
+                    type="number" min="1" max="8192"
+                    className="text-xs font-mono bg-indigo-50 text-indigo-600 px-2 py-1 rounded-md border-none outline-none w-20 text-right"
+                    value={state.maxOutputTokens}
+                    onChange={(e) => setState(prev => ({ ...prev, maxOutputTokens: parseInt(e.target.value) || 2048 }))}
+                  />
+                </div>
+                <input 
+                  type="range" min="256" max="8192" step="256"
+                  className="w-full accent-indigo-600"
+                  value={state.maxOutputTokens}
+                  onChange={(e) => setState(prev => ({ ...prev, maxOutputTokens: parseInt(e.target.value) }))}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-gray-700">{t.personaLabel}</label>
+                <textarea 
+                  className="w-full h-32 p-4 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm resize-none custom-scrollbar"
+                  placeholder={t.personaPlaceholder}
+                  value={state.customPersona}
+                  onChange={(e) => setState(prev => ({ ...prev, customPersona: e.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="p-6 bg-gray-50 flex justify-end">
+              <button 
+                onClick={() => {
+                  setShowSettingsModal(false);
+                  if (state.summary) geminiService.initChat(state, messages);
+                }}
+                className="px-8 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 shadow-lg active:scale-95 transition-all"
+              >
+                {t.saveSettings}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* History Modal */}
       {showHistoryModal && (
@@ -662,8 +1053,10 @@ const App: React.FC = () => {
               </button>
             </div>
             <div className="p-8 overflow-y-auto custom-scrollbar">
-              <div className="prose prose-indigo max-w-none text-gray-700 leading-relaxed whitespace-pre-wrap">
-                {chatSummary}
+              <div className="prose prose-indigo max-w-none text-gray-700 leading-relaxed markdown-body">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {chatSummary || ''}
+                </ReactMarkdown>
               </div>
             </div>
             <div className="p-6 border-t border-gray-100 bg-gray-50 flex justify-end">

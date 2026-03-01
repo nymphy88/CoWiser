@@ -16,6 +16,8 @@ export interface SummaryHistoryItem {
 }
 
 export type AppLanguage = 'en' | 'th';
+export type SummaryType = 'summary' | 'action_items' | 'key_takeaways' | 'bullets';
+export type ComplexityLevel = 'simple' | 'standard' | 'detailed' | 'technical';
 
 export interface AnalysisState {
   rawContext: string;
@@ -24,8 +26,15 @@ export interface AnalysisState {
   isProcessing: boolean;
   excludeCode: boolean;
   focusKeywords: string;
+  summaryType: SummaryType;
+  complexity: ComplexityLevel;
   error: string | null;
   language: AppLanguage;
+  uploadProgress: number;
+  // New Settings
+  temperature: number;
+  maxOutputTokens: number;
+  customPersona?: string;
 }
 
 export enum TabType {
