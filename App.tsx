@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { io, Socket } from 'socket.io-client';
 import { AnalysisState, Message, TabType, AppLanguage, SummaryHistoryItem } from './types';
 import { geminiService } from './services/gemini';
 
@@ -53,6 +54,11 @@ const translations = {
     editMode: 'Edit Mode',
     undo: 'Undo',
     redo: 'Redo',
+    collaborate: 'Collaborate',
+    copyLink: 'Copy Session Link',
+    linkCopied: 'Link Copied!',
+    onlineUsers: 'Online',
+    sessionJoined: 'Joined collaboration session',
     types: {
       summary: 'Summary',
       action_items: 'Action Items',
@@ -113,6 +119,11 @@ const translations = {
     editMode: 'โหมดแก้ไข',
     undo: 'เลิกทำ',
     redo: 'ทำซ้ำ',
+    collaborate: 'ทำงานร่วมกัน',
+    copyLink: 'คัดลอกลิงก์เซสชัน',
+    linkCopied: 'คัดลอกลิงก์แล้ว!',
+    onlineUsers: 'ออนไลน์',
+    sessionJoined: 'เข้าร่วมเซสชันการทำงานร่วมกันแล้ว',
     types: {
       summary: 'บทสรุป',
       action_items: 'รายการสิ่งที่ต้องทำ',
@@ -207,6 +218,11 @@ const App: React.FC = () => {
   const [sidebarWidth, setSidebarWidth] = useState(384); // Default 384px (w-96)
   const [isResizing, setIsResizing] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  
+  const [socket, setSocket] = useState<Socket | null>(null);
+  const [roomId, setRoomId] = useState<string | null>(null);
+  const [userCount, setUserCount] = useState(1);
+  const [isLinkCopied, setIsLinkCopied] = useState(false);
 
   const [past, setPast] = useState<string[]>([]);
   const [future, setFuture] = useState<string[]>([]);
@@ -231,6 +247,42 @@ const App: React.FC = () => {
     const { error, isProcessing, ...persistableState } = state;
     localStorage.setItem(STORAGE_KEYS.STATE, JSON.stringify(persistableState));
   }, [state]);
+
+  // Socket initialization
+  useEffect(() => {
+    const newSocket = io();
+    setSocket(newSocket);
+
+    const hash = window.location.hash.substring(1);
+    const currentRoomId = hash || Math.random().toString(36).substring(7);
+    if (!hash) window.location.hash = currentRoomId;
+    setRoomId(currentRoomId);
+
+    newSocket.emit("join-room", currentRoomId);
+
+    newSocket.on("init-state", ({ summary, userCount }: { summary: string; userCount: number }) => {
+      if (summary) {
+        setState(prev => ({ ...prev, summary }));
+      }
+      setUserCount(userCount);
+    });
+
+    newSocket.on("summary-updated", (summary: string) => {
+      setState(prev => ({ ...prev, summary }));
+    });
+
+    newSocket.on("user-joined", ({ userCount }: { userCount: number }) => {
+      setUserCount(userCount);
+    });
+
+    newSocket.on("user-left", ({ userCount }: { userCount: number }) => {
+      setUserCount(userCount);
+    });
+
+    return () => {
+      newSocket.close();
+    };
+  }, []);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.MESSAGES, JSON.stringify(messages));
@@ -282,7 +334,12 @@ const App: React.FC = () => {
     setSummaryPast(prev => [...prev, state.summary]);
     setSummaryFuture([]);
     setState(prev => ({ ...prev, summary: newText }));
-  }, [state.summary]);
+    
+    // Emit change to other users
+    if (socket && roomId) {
+      socket.emit("update-summary", { roomId, summary: newText });
+    }
+  }, [state.summary, socket, roomId]);
 
   const handleSummaryUndo = () => {
     if (summaryPast.length === 0) return;
@@ -461,6 +518,11 @@ const App: React.FC = () => {
       };
       setState(newState);
       
+      // Emit update to other users
+      if (socket && roomId) {
+        socket.emit("update-summary", { roomId, summary: result });
+      }
+      
       geminiService.initChat(newState, []);
       setMessages([]); 
     } catch (err: any) {
@@ -573,6 +635,12 @@ const App: React.FC = () => {
     m.content.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const handleCopyLink = () => {
+    navigator.clipboard.writeText(window.location.href);
+    setIsLinkCopied(true);
+    setTimeout(() => setIsLinkCopied(false), 2000);
+  };
+
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-gray-50 text-gray-900">
       {/* Sidebar */}
@@ -597,6 +665,22 @@ const App: React.FC = () => {
               <button onClick={handleResetAll} className="text-[10px] text-gray-400 hover:text-red-500 font-medium transition-colors uppercase tracking-wider" title="Reset everything">Reset</button>
             </div>
           </div>
+        </div>
+
+        <div className="mb-6 p-4 bg-indigo-50 rounded-2xl border border-indigo-100">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest flex items-center gap-1">
+              <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span>
+              {userCount} {t.onlineUsers}
+            </span>
+            <button 
+              onClick={handleCopyLink}
+              className="text-[10px] font-bold text-indigo-600 hover:text-indigo-700 uppercase tracking-widest transition-colors"
+            >
+              {isLinkCopied ? t.linkCopied : t.copyLink}
+            </button>
+          </div>
+          <p className="text-[10px] text-indigo-400 italic">{t.sessionJoined}</p>
         </div>
 
         <div className="space-y-6">
