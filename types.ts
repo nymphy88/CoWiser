@@ -35,9 +35,26 @@ export interface AnalysisState {
   temperature: number;
   maxOutputTokens: number;
   customPersona?: string;
+  appMode: AppMode;
+  codeFiles: CodeFile[];
+  activeCodeFileId: string | null;
+}
+
+export enum AppMode {
+  ANALYSIS = 'analysis',
+  CODE = 'code'
+}
+
+export interface CodeFile {
+  id: string;
+  name: string;
+  content: string;
+  summary: string;
+  lastUpdated: Date;
 }
 
 export enum TabType {
   SUMMARY = 'summary',
-  CHAT = 'chat'
+  CHAT = 'chat',
+  CODE_EDITOR = 'code_editor'
 }

@@ -159,6 +159,75 @@ export class GeminiService {
       throw new Error("Failed to send message.");
     }
   }
+
+  async processCodeUpdate(
+    currentCode: string,
+    updateInstruction: string,
+    language: AppLanguage
+  ): Promise<string> {
+    const prompt = `
+      You are an expert code editor and formatter.
+      The user wants to update the following code based on their instructions.
+      
+      CURRENT CODE:
+      \`\`\`
+      ${currentCode}
+      \`\`\`
+      
+      UPDATE INSTRUCTIONS / NEW CODE SNIPPET:
+      ${updateInstruction}
+      
+      TASK:
+      1. Apply the updates to the code.
+      2. Ensure the code is correctly formatted and indented.
+      3. Maintain the existing style and logic unless instructed otherwise.
+      4. Return ONLY the updated code block. Do not include any explanations or markdown formatting like \`\`\` outside the code itself.
+      5. If the update is a new snippet and there is no current code, format the new snippet perfectly.
+    `;
+
+    try {
+      const response: GenerateContentResponse = await this.ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: prompt,
+        config: {
+          temperature: 0.2, // Low temperature for precision
+          maxOutputTokens: 4096,
+        },
+      });
+      return response.text || "";
+    } catch (error) {
+      console.error("Code update error:", error);
+      throw new Error(language === 'th' ? "ไม่สามารถอัปเดตโค้ดได้" : "Failed to update code.");
+    }
+  }
+
+  async summarizeCode(
+    codeFiles: { name: string; content: string }[],
+    language: AppLanguage
+  ): Promise<string> {
+    const codeContext = codeFiles.map(f => `FILE: ${f.name}\nCONTENT:\n${f.content}`).join('\n\n---\n\n');
+    const langNote = language === 'th' ? "Respond in Thai language." : "Respond in English language.";
+    
+    const prompt = `
+      Summarize the following codebase. Provide an overall architectural overview and a brief summary of each file's purpose.
+      ${langNote}
+      
+      CODEBASE:
+      ${codeContext}
+    `;
+
+    try {
+      const response: GenerateContentResponse = await this.ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: prompt,
+        config: { temperature: 0.3 },
+      });
+      return response.text || "";
+    } catch (error) {
+      console.error("Code summarization error:", error);
+      throw new Error("Failed to summarize code.");
+    }
+  }
 }
 
 export const geminiService = new GeminiService();

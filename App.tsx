@@ -2,8 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { io, Socket } from 'socket.io-client';
-import { AnalysisState, Message, TabType, AppLanguage, SummaryHistoryItem } from './types';
+import { AnalysisState, Message, TabType, AppLanguage, SummaryHistoryItem, AppMode, CodeFile } from './types';
 import { geminiService } from './services/gemini';
 
 const translations = {
@@ -54,16 +53,25 @@ const translations = {
     editMode: 'Edit Mode',
     undo: 'Undo',
     redo: 'Redo',
-    collaborate: 'Collaborate',
-    copyLink: 'Copy Session Link',
-    linkCopied: 'Link Copied!',
-    onlineUsers: 'Online',
-    sessionJoined: 'Joined collaboration session',
     types: {
       summary: 'Summary',
       action_items: 'Action Items',
       key_takeaways: 'Key Takeaways',
       bullets: 'Bullet Points'
+    },
+    codeMode: {
+      title: 'Code Editor',
+      analysisMode: 'Analysis',
+      codeFiles: 'Code Files',
+      addFile: 'Add New File',
+      updateCode: 'Update Code / Add Snippet',
+      codeSummary: 'Overall Code Summary',
+      applyUpdate: 'Apply & Format',
+      formatting: 'Formatting code...',
+      noFiles: 'No code files added yet.',
+      filePlaceholder: 'filename.ts',
+      updatePlaceholder: 'Paste new code or instructions for update...',
+      overallSummaryPlaceholder: 'Summary of all code will appear here...'
     },
     complexities: {
       simple: 'Simple',
@@ -119,16 +127,25 @@ const translations = {
     editMode: 'โหมดแก้ไข',
     undo: 'เลิกทำ',
     redo: 'ทำซ้ำ',
-    collaborate: 'ทำงานร่วมกัน',
-    copyLink: 'คัดลอกลิงก์เซสชัน',
-    linkCopied: 'คัดลอกลิงก์แล้ว!',
-    onlineUsers: 'ออนไลน์',
-    sessionJoined: 'เข้าร่วมเซสชันการทำงานร่วมกันแล้ว',
     types: {
       summary: 'บทสรุป',
       action_items: 'รายการสิ่งที่ต้องทำ',
       key_takeaways: 'ประเด็นสำคัญ',
       bullets: 'รายการหัวข้อ'
+    },
+    codeMode: {
+      title: 'ตัวแก้ไขโค้ด',
+      analysisMode: 'การวิเคราะห์',
+      codeFiles: 'ไฟล์โค้ด',
+      addFile: 'เพิ่มไฟล์ใหม่',
+      updateCode: 'อัปเดตโค้ด / เพิ่มโค้ด',
+      codeSummary: 'สรุปโค้ดทั้งหมด',
+      applyUpdate: 'ปรับใช้และจัดรูปแบบ',
+      formatting: 'กำลังจัดรูปแบบโค้ด...',
+      noFiles: 'ยังไม่มีไฟล์โค้ด',
+      filePlaceholder: 'ชื่อไฟล์.ts',
+      updatePlaceholder: 'วางโค้ดใหม่หรือคำสั่งสำหรับการอัปเดต...',
+      overallSummaryPlaceholder: 'สรุปโค้ดทั้งหมดจะแสดงที่นี่...'
     },
     complexities: {
       simple: 'เข้าใจง่าย',
@@ -159,6 +176,12 @@ const App: React.FC = () => {
           customPersona: parsed.customPersona ?? '',
           summaryType: parsed.summaryType ?? 'summary',
           complexity: parsed.complexity ?? 'standard',
+          appMode: parsed.appMode ?? AppMode.ANALYSIS,
+          codeFiles: (parsed.codeFiles || []).map((f: any) => ({
+            ...f,
+            lastUpdated: new Date(f.lastUpdated)
+          })),
+          activeCodeFileId: parsed.activeCodeFileId ?? null,
           summaryHistory: (parsed.summaryHistory || []).map((h: any) => ({
             ...h,
             timestamp: new Date(h.timestamp)
@@ -182,7 +205,10 @@ const App: React.FC = () => {
       uploadProgress: 0,
       temperature: 0.7,
       maxOutputTokens: 2048,
-      customPersona: ''
+      customPersona: '',
+      appMode: AppMode.ANALYSIS,
+      codeFiles: [],
+      activeCodeFileId: null
     };
   });
 
@@ -218,17 +244,17 @@ const App: React.FC = () => {
   const [sidebarWidth, setSidebarWidth] = useState(384); // Default 384px (w-96)
   const [isResizing, setIsResizing] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
-  
-  const [socket, setSocket] = useState<Socket | null>(null);
-  const [roomId, setRoomId] = useState<string | null>(null);
-  const [userCount, setUserCount] = useState(1);
-  const [isLinkCopied, setIsLinkCopied] = useState(false);
 
   const [past, setPast] = useState<string[]>([]);
   const [future, setFuture] = useState<string[]>([]);
 
   const [summaryPast, setSummaryPast] = useState<string[]>([]);
   const [summaryFuture, setSummaryFuture] = useState<string[]>([]);
+
+  const [newFileName, setNewFileName] = useState('');
+  const [codeUpdateInput, setCodeUpdateInput] = useState('');
+  const [isFormatting, setIsFormatting] = useState(false);
+  const [overallCodeSummary, setOverallCodeSummary] = useState('');
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -247,42 +273,6 @@ const App: React.FC = () => {
     const { error, isProcessing, ...persistableState } = state;
     localStorage.setItem(STORAGE_KEYS.STATE, JSON.stringify(persistableState));
   }, [state]);
-
-  // Socket initialization
-  useEffect(() => {
-    const newSocket = io();
-    setSocket(newSocket);
-
-    const hash = window.location.hash.substring(1);
-    const currentRoomId = hash || Math.random().toString(36).substring(7);
-    if (!hash) window.location.hash = currentRoomId;
-    setRoomId(currentRoomId);
-
-    newSocket.emit("join-room", currentRoomId);
-
-    newSocket.on("init-state", ({ summary, userCount }: { summary: string; userCount: number }) => {
-      if (summary) {
-        setState(prev => ({ ...prev, summary }));
-      }
-      setUserCount(userCount);
-    });
-
-    newSocket.on("summary-updated", (summary: string) => {
-      setState(prev => ({ ...prev, summary }));
-    });
-
-    newSocket.on("user-joined", ({ userCount }: { userCount: number }) => {
-      setUserCount(userCount);
-    });
-
-    newSocket.on("user-left", ({ userCount }: { userCount: number }) => {
-      setUserCount(userCount);
-    });
-
-    return () => {
-      newSocket.close();
-    };
-  }, []);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.MESSAGES, JSON.stringify(messages));
@@ -334,12 +324,7 @@ const App: React.FC = () => {
     setSummaryPast(prev => [...prev, state.summary]);
     setSummaryFuture([]);
     setState(prev => ({ ...prev, summary: newText }));
-    
-    // Emit change to other users
-    if (socket && roomId) {
-      socket.emit("update-summary", { roomId, summary: newText });
-    }
-  }, [state.summary, socket, roomId]);
+  }, [state.summary]);
 
   const handleSummaryUndo = () => {
     if (summaryPast.length === 0) return;
@@ -518,11 +503,6 @@ const App: React.FC = () => {
       };
       setState(newState);
       
-      // Emit update to other users
-      if (socket && roomId) {
-        socket.emit("update-summary", { roomId, summary: result });
-      }
-      
       geminiService.initChat(newState, []);
       setMessages([]); 
     } catch (err: any) {
@@ -624,6 +604,55 @@ const App: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
+  const handleAddFile = () => {
+    if (!newFileName.trim()) return;
+    const newFile: CodeFile = {
+      id: Date.now().toString(),
+      name: newFileName.trim(),
+      content: '',
+      summary: '',
+      lastUpdated: new Date()
+    };
+    setState(prev => ({
+      ...prev,
+      codeFiles: [...prev.codeFiles, newFile],
+      activeCodeFileId: newFile.id
+    }));
+    setNewFileName('');
+  };
+
+  const handleCodeUpdate = async () => {
+    if (!state.activeCodeFileId || !codeUpdateInput.trim()) return;
+    const activeFile = state.codeFiles.find(f => f.id === state.activeCodeFileId);
+    if (!activeFile) return;
+
+    setIsFormatting(true);
+    try {
+      const updatedCode = await geminiService.processCodeUpdate(
+        activeFile.content,
+        codeUpdateInput,
+        state.language
+      );
+      
+      const updatedFiles = state.codeFiles.map(f => 
+        f.id === state.activeCodeFileId 
+          ? { ...f, content: updatedCode, lastUpdated: new Date() } 
+          : f
+      );
+
+      setState(prev => ({ ...prev, codeFiles: updatedFiles }));
+      setCodeUpdateInput('');
+      
+      // Auto-summarize codebase after update
+      const summary = await geminiService.summarizeCode(updatedFiles, state.language);
+      setOverallCodeSummary(summary);
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setIsFormatting(false);
+    }
+  };
+
   const handleResetAll = () => {
     if (window.confirm(state.language === 'th' ? "ต้องการล้างข้อมูลทั้งหมดและเริ่มใหม่หรือไม่?" : "Are you sure you want to reset everything and start fresh?")) {
       localStorage.clear();
@@ -635,10 +664,44 @@ const App: React.FC = () => {
     m.content.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const handleCopyLink = () => {
-    navigator.clipboard.writeText(window.location.href);
-    setIsLinkCopied(true);
-    setTimeout(() => setIsLinkCopied(false), 2000);
+  const renderSummaryContent = (content: string) => {
+    // Regex to find filenames (e.g., file.ts, style.css, App.tsx)
+    const fileRegex = /([a-zA-Z0-9_-]+\.[a-zA-Z0-9]+)/g;
+    const parts = content.split(fileRegex);
+    
+    return parts.map((part, i) => {
+      if (fileRegex.test(part)) {
+        const existingFile = state.codeFiles.find(f => f.name === part);
+        return (
+          <span key={i} className="group/file relative inline-block">
+            <button 
+              onClick={() => {
+                if (existingFile) {
+                  setState(prev => ({ ...prev, appMode: AppMode.CODE, activeCodeFileId: existingFile.id }));
+                } else {
+                  setNewFileName(part);
+                  setState(prev => ({ ...prev, appMode: AppMode.CODE }));
+                }
+              }}
+              className="text-indigo-600 font-mono font-bold hover:underline bg-indigo-50 px-1 rounded transition-colors"
+            >
+              {part}
+            </button>
+            {existingFile && (
+              <div className="absolute bottom-full left-0 mb-2 hidden group-hover/file:block w-64 p-3 bg-white border border-gray-200 rounded-lg shadow-xl z-50 text-xs text-gray-600">
+                <p className="font-bold mb-1 border-b pb-1">{existingFile.name}</p>
+                <p className="line-clamp-3 italic">{existingFile.content || 'No content yet.'}</p>
+              </div>
+            )}
+          </span>
+        );
+      }
+      return (
+        <ReactMarkdown key={i} remarkPlugins={[remarkGfm]} components={{ p: 'span' }}>
+          {part}
+        </ReactMarkdown>
+      );
+    });
   };
 
   return (
@@ -665,22 +728,6 @@ const App: React.FC = () => {
               <button onClick={handleResetAll} className="text-[10px] text-gray-400 hover:text-red-500 font-medium transition-colors uppercase tracking-wider" title="Reset everything">Reset</button>
             </div>
           </div>
-        </div>
-
-        <div className="mb-6 p-4 bg-indigo-50 rounded-2xl border border-indigo-100">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest flex items-center gap-1">
-              <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span>
-              {userCount} {t.onlineUsers}
-            </span>
-            <button 
-              onClick={handleCopyLink}
-              className="text-[10px] font-bold text-indigo-600 hover:text-indigo-700 uppercase tracking-widest transition-colors"
-            >
-              {isLinkCopied ? t.linkCopied : t.copyLink}
-            </button>
-          </div>
-          <p className="text-[10px] text-indigo-400 italic">{t.sessionJoined}</p>
         </div>
 
         <div className="space-y-6">
@@ -805,9 +852,29 @@ const App: React.FC = () => {
       {/* Main Content */}
       <main className="flex-1 flex flex-col h-screen overflow-hidden">
         <nav className="flex items-center justify-between px-6 pt-6 border-b border-gray-200 bg-white">
-          <div className="flex items-center">
-            <button onClick={() => setActiveTab(TabType.SUMMARY)} className={`px-6 py-3 text-sm font-semibold transition-all border-b-2 ${activeTab === TabType.SUMMARY ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>{t.summaryTab}</button>
-            <button onClick={() => setActiveTab(TabType.CHAT)} className={`px-6 py-3 text-sm font-semibold transition-all border-b-2 ${activeTab === TabType.CHAT ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>{t.chatTab}</button>
+          <div className="flex items-center gap-4">
+            <div className="flex bg-gray-100 p-1 rounded-xl mr-4">
+              <button 
+                onClick={() => setState(prev => ({ ...prev, appMode: AppMode.ANALYSIS }))}
+                className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${state.appMode === AppMode.ANALYSIS ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                <i className="fas fa-search-plus"></i>
+                {t.codeMode.analysisMode}
+              </button>
+              <button 
+                onClick={() => setState(prev => ({ ...prev, appMode: AppMode.CODE }))}
+                className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${state.appMode === AppMode.CODE ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                <i className="fas fa-code"></i>
+                {t.codeMode.title}
+              </button>
+            </div>
+            {state.appMode === AppMode.ANALYSIS && (
+              <>
+                <button onClick={() => setActiveTab(TabType.SUMMARY)} className={`px-6 py-3 text-sm font-semibold transition-all border-b-2 ${activeTab === TabType.SUMMARY ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>{t.summaryTab}</button>
+                <button onClick={() => setActiveTab(TabType.CHAT)} className={`px-6 py-3 text-sm font-semibold transition-all border-b-2 ${activeTab === TabType.CHAT ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>{t.chatTab}</button>
+              </>
+            )}
           </div>
           
           <div className="flex items-center gap-2 pb-1">
@@ -883,109 +950,224 @@ const App: React.FC = () => {
           </div>
         </nav>
 
-        <div className="flex-1 overflow-y-auto p-6 md:p-10 custom-scrollbar">
-          {activeTab === TabType.SUMMARY ? (
-            <div className="max-w-4xl mx-auto space-y-6">
-              {!state.summary && !state.isProcessing ? (
-                <div className="flex flex-col items-center justify-center py-20 text-gray-400">
-                  <i className="fas fa-file-alt text-6xl mb-4 opacity-20"></i>
-                  <p className="text-lg text-center whitespace-pre-wrap">{t.emptySummary}</p>
-                </div>
-              ) : state.isProcessing ? (
-                <div className="space-y-4 animate-pulse">
-                  <div className="h-8 bg-gray-200 rounded w-1/4"></div>
-                  <div className="h-4 bg-gray-200 rounded w-full"></div>
-                  <div className="h-4 bg-gray-200 rounded w-full"></div>
-                  <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+        <div className="flex-1 overflow-hidden relative">
+          {state.appMode === AppMode.ANALYSIS ? (
+            <div className="h-full overflow-y-auto p-6 md:p-10 custom-scrollbar">
+              {activeTab === TabType.SUMMARY ? (
+                <div className="max-w-4xl mx-auto space-y-6">
+                  {!state.summary && !state.isProcessing ? (
+                    <div className="flex flex-col items-center justify-center py-20 text-gray-400">
+                      <i className="fas fa-file-alt text-6xl mb-4 opacity-20"></i>
+                      <p className="text-lg text-center whitespace-pre-wrap">{t.emptySummary}</p>
+                    </div>
+                  ) : state.isProcessing ? (
+                    <div className="space-y-4 animate-pulse">
+                      <div className="h-8 bg-gray-200 rounded w-1/4"></div>
+                      <div className="h-4 bg-gray-200 rounded w-full"></div>
+                      <div className="h-4 bg-gray-200 rounded w-full"></div>
+                      <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+                    </div>
+                  ) : (
+                    <article className="prose prose-indigo max-w-none bg-white p-8 rounded-2xl shadow-sm border border-gray-100 relative">
+                      <div className="flex justify-between items-start mb-6">
+                        <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><i className="fas fa-clipboard-list text-indigo-600"></i>{t.contextSummary}</h2>
+                        <div className="flex gap-2">
+                          <button onClick={handleExport} className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-semibold rounded-lg transition-colors" title={t.export}><i className="fas fa-file-export"></i>{t.export}</button>
+                        </div>
+                      </div>
+                      {isEditingSummary ? (
+                        <textarea
+                          className="w-full min-h-[400px] p-6 border border-indigo-100 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-gray-700 leading-relaxed resize-y bg-indigo-50/30 font-sans"
+                          value={state.summary}
+                          onChange={(e) => updateSummaryWithHistory(e.target.value)}
+                        />
+                      ) : (
+                        <div className="text-gray-700 leading-relaxed markdown-body">
+                          {renderSummaryContent(state.summary)}
+                        </div>
+                      )}
+                    </article>
+                  )}
                 </div>
               ) : (
-                <article className="prose prose-indigo max-w-none bg-white p-8 rounded-2xl shadow-sm border border-gray-100 relative">
-                  <div className="flex justify-between items-start mb-6">
-                    <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><i className="fas fa-clipboard-list text-indigo-600"></i>{t.contextSummary}</h2>
-                    <div className="flex gap-2">
-                      <button onClick={handleExport} className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-semibold rounded-lg transition-colors" title={t.export}><i className="fas fa-file-export"></i>{t.export}</button>
-                    </div>
+                <div className="max-w-4xl mx-auto h-full flex flex-col">
+                  <div className="flex-1 overflow-y-auto space-y-4 pb-4 custom-scrollbar">
+                    {searchTerm && filteredMessages.length > 0 && (
+                      <div className="flex items-center justify-between mb-4 px-2">
+                        <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest bg-indigo-50 px-2 py-1 rounded">
+                          {state.language === 'th' ? `พบ ${filteredMessages.length} รายการ` : `Found ${filteredMessages.length} ${filteredMessages.length === 1 ? 'match' : 'matches'}`}
+                        </span>
+                        <button onClick={() => setSearchTerm('')} className="text-[10px] font-bold text-gray-400 hover:text-gray-600 uppercase tracking-widest">
+                          {state.language === 'th' ? 'ล้างการค้นหา' : 'Clear Search'}
+                        </button>
+                      </div>
+                    )}
+                    {filteredMessages.length === 0 && (
+                      <div className="flex flex-col items-center justify-center py-20 text-gray-400">
+                        <i className="fas fa-comments text-6xl mb-4 opacity-20"></i>
+                        <p className="text-center whitespace-pre-wrap">{searchTerm ? 'No matches found.' : t.chatDefault}</p>
+                      </div>
+                    )}
+                    {filteredMessages.map((msg, idx) => (
+                      <div key={idx} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                        <div className="mb-1 px-2 flex items-center gap-2">
+                          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{msg.role === 'user' ? (state.language === 'th' ? 'คุณ' : 'You') : (state.language === 'th' ? 'ผู้ช่วย' : 'Assistant')}</span>
+                        </div>
+                        <div className={`max-w-[85%] p-4 rounded-2xl shadow-sm relative group ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : msg.isError ? 'bg-red-50 text-red-800 border border-red-200 rounded-tl-none' : 'bg-white text-gray-800 border border-gray-100 rounded-tl-none'}`}>
+                          <div className="flex items-start gap-2">
+                            {msg.isError && <i className="fas fa-exclamation-triangle mt-1"></i>}
+                            <div className="text-sm markdown-body">
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                {msg.content}
+                              </ReactMarkdown>
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between mt-2 pt-2 border-t border-black/5">
+                            <span className={`text-[10px] block opacity-50`}>{msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                            {msg.isError && <button onClick={handleRetry} className="text-[10px] font-bold underline hover:no-underline transition-all flex items-center gap-1"><i className="fas fa-redo text-[8px]"></i>Retry</button>}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    {isChatting && (
+                      <div className="flex flex-col items-start">
+                        <div className="mb-1 px-2"><span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{state.language === 'th' ? 'ผู้ช่วย' : 'Assistant'}</span></div>
+                        <div className="bg-white text-gray-400 border border-gray-100 rounded-2xl rounded-tl-none p-4 shadow-sm flex items-center gap-3">
+                          <div className="flex gap-1">
+                            <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
+                            <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
+                            <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce"></span>
+                          </div>
+                          <span className="text-sm">{t.thinking}</span>
+                        </div>
+                      </div>
+                    )}
+                    {!searchTerm && <div ref={chatEndRef} />}
                   </div>
-                  {isEditingSummary ? (
-                    <textarea
-                      className="w-full min-h-[400px] p-6 border border-indigo-100 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-gray-700 leading-relaxed resize-y bg-indigo-50/30 font-sans"
-                      value={state.summary}
-                      onChange={(e) => updateSummaryWithHistory(e.target.value)}
-                    />
-                  ) : (
-                    <div className="text-gray-700 leading-relaxed markdown-body">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {state.summary}
-                      </ReactMarkdown>
-                    </div>
-                  )}
-                </article>
+
+                  <div className="pt-4 mt-auto border-t border-gray-100">
+                    <form onSubmit={handleSendMessage} className="flex gap-2 relative">
+                      <input type="text" placeholder={!state.summary ? t.analyzeFirst : isChatting ? t.thinking : t.chatPlaceholder} className="flex-1 p-4 pr-16 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none text-sm bg-white shadow-sm disabled:bg-gray-50 transition-all" value={inputMessage} onChange={(e) => setInputMessage(e.target.value)} disabled={!state.summary || isChatting} />
+                      <button type="submit" disabled={!state.summary || state.isProcessing || isChatting || !inputMessage.trim()} className="absolute right-2 top-2 bottom-2 bg-indigo-600 text-white px-4 rounded-xl hover:bg-indigo-700 transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[48px]">
+                        {isChatting ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-paper-plane"></i>}
+                      </button>
+                    </form>
+                    {!state.summary && <p className="text-center text-[10px] font-medium text-amber-600 mt-2 uppercase tracking-tighter"><i className="fas fa-lock mr-1"></i> {t.chatLock}</p>}
+                  </div>
+                </div>
               )}
             </div>
           ) : (
-            <div className="max-w-4xl mx-auto h-full flex flex-col">
-              <div className="flex-1 overflow-y-auto space-y-4 pb-4 custom-scrollbar">
-                {searchTerm && filteredMessages.length > 0 && (
-                  <div className="flex items-center justify-between mb-4 px-2">
-                    <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest bg-indigo-50 px-2 py-1 rounded">
-                      {state.language === 'th' ? `พบ ${filteredMessages.length} รายการ` : `Found ${filteredMessages.length} ${filteredMessages.length === 1 ? 'match' : 'matches'}`}
-                    </span>
-                    <button onClick={() => setSearchTerm('')} className="text-[10px] font-bold text-gray-400 hover:text-gray-600 uppercase tracking-widest">
-                      {state.language === 'th' ? 'ล้างการค้นหา' : 'Clear Search'}
-                    </button>
+            /* Code Editor Mode UI */
+            <div className="h-full flex flex-col md:flex-row overflow-hidden bg-gray-900">
+              {/* File Explorer */}
+              <div className="w-full md:w-64 bg-gray-800 border-r border-gray-700 flex flex-col">
+                <div className="p-4 border-b border-gray-700">
+                  <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">{t.codeMode.codeFiles}</h3>
+                  <div className="flex gap-2">
+                    <input 
+                      type="text" 
+                      placeholder={t.codeMode.filePlaceholder}
+                      className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-300 focus:ring-1 focus:ring-indigo-500 outline-none"
+                      value={newFileName}
+                      onChange={(e) => setNewFileName(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleAddFile()}
+                    />
+                    <button onClick={handleAddFile} className="bg-indigo-600 hover:bg-indigo-700 text-white p-1.5 rounded-lg transition-colors"><i className="fas fa-plus"></i></button>
                   </div>
-                )}
-                {filteredMessages.length === 0 && (
-                  <div className="flex flex-col items-center justify-center py-20 text-gray-400">
-                    <i className="fas fa-comments text-6xl mb-4 opacity-20"></i>
-                    <p className="text-center whitespace-pre-wrap">{searchTerm ? 'No matches found.' : t.chatDefault}</p>
-                  </div>
-                )}
-                {filteredMessages.map((msg, idx) => (
-                  <div key={idx} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                    <div className="mb-1 px-2 flex items-center gap-2">
-                      <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{msg.role === 'user' ? (state.language === 'th' ? 'คุณ' : 'You') : (state.language === 'th' ? 'ผู้ช่วย' : 'Assistant')}</span>
-                    </div>
-                    <div className={`max-w-[85%] p-4 rounded-2xl shadow-sm relative group ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : msg.isError ? 'bg-red-50 text-red-800 border border-red-200 rounded-tl-none' : 'bg-white text-gray-800 border border-gray-100 rounded-tl-none'}`}>
-                      <div className="flex items-start gap-2">
-                        {msg.isError && <i className="fas fa-exclamation-triangle mt-1"></i>}
-                        <div className="text-sm markdown-body">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                            {msg.content}
-                          </ReactMarkdown>
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-between mt-2 pt-2 border-t border-black/5">
-                        <span className={`text-[10px] block opacity-50`}>{msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                        {msg.isError && <button onClick={handleRetry} className="text-[10px] font-bold underline hover:no-underline transition-all flex items-center gap-1"><i className="fas fa-redo text-[8px]"></i>Retry</button>}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                {isChatting && (
-                  <div className="flex flex-col items-start">
-                    <div className="mb-1 px-2"><span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{state.language === 'th' ? 'ผู้ช่วย' : 'Assistant'}</span></div>
-                    <div className="bg-white text-gray-400 border border-gray-100 rounded-2xl rounded-tl-none p-4 shadow-sm flex items-center gap-3">
-                      <div className="flex gap-1">
-                        <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
-                        <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
-                        <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce"></span>
-                      </div>
-                      <span className="text-sm">{t.thinking}</span>
-                    </div>
-                  </div>
-                )}
-                {!searchTerm && <div ref={chatEndRef} />}
+                </div>
+                <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1">
+                  {state.codeFiles.length === 0 ? (
+                    <p className="text-[10px] text-gray-500 text-center mt-4">{t.codeMode.noFiles}</p>
+                  ) : (
+                    state.codeFiles.map(file => (
+                      <button 
+                        key={file.id} 
+                        onClick={() => setState(prev => ({ ...prev, activeCodeFileId: file.id }))}
+                        className={`w-full text-left px-3 py-2 rounded-lg text-xs transition-all flex items-center justify-between group ${state.activeCodeFileId === file.id ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'}`}
+                      >
+                        <span className="flex items-center gap-2 truncate">
+                          <i className={`fas ${file.name.endsWith('.ts') || file.name.endsWith('.tsx') ? 'fa-code text-blue-400' : 'fa-file-code text-gray-400'}`}></i>
+                          {file.name}
+                        </span>
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setState(prev => ({ ...prev, codeFiles: prev.codeFiles.filter(f => f.id !== file.id), activeCodeFileId: prev.activeCodeFileId === file.id ? null : prev.activeCodeFileId }));
+                          }}
+                          className="opacity-0 group-hover:opacity-100 hover:text-red-400 transition-all"
+                        >
+                          <i className="fas fa-times"></i>
+                        </button>
+                      </button>
+                    ))
+                  )}
+                </div>
               </div>
 
-              <div className="pt-4 mt-auto border-t border-gray-100">
-                <form onSubmit={handleSendMessage} className="flex gap-2 relative">
-                  <input type="text" placeholder={!state.summary ? t.analyzeFirst : isChatting ? t.thinking : t.chatPlaceholder} className="flex-1 p-4 pr-16 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none text-sm bg-white shadow-sm disabled:bg-gray-50 transition-all" value={inputMessage} onChange={(e) => setInputMessage(e.target.value)} disabled={!state.summary || isChatting} />
-                  <button type="submit" disabled={!state.summary || state.isProcessing || isChatting || !inputMessage.trim()} className="absolute right-2 top-2 bottom-2 bg-indigo-600 text-white px-4 rounded-xl hover:bg-indigo-700 transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[48px]">
-                    {isChatting ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-paper-plane"></i>}
-                  </button>
-                </form>
-                {!state.summary && <p className="text-center text-[10px] font-medium text-amber-600 mt-2 uppercase tracking-tighter"><i className="fas fa-lock mr-1"></i> {t.chatLock}</p>}
+              {/* Editor Area */}
+              <div className="flex-1 flex flex-col overflow-hidden">
+                {state.activeCodeFileId ? (
+                  <>
+                    <div className="flex-1 relative">
+                      <textarea 
+                        className="w-full h-full p-6 bg-gray-900 text-gray-300 font-mono text-sm leading-relaxed resize-none outline-none custom-scrollbar"
+                        value={state.codeFiles.find(f => f.id === state.activeCodeFileId)?.content || ''}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setState(prev => ({
+                            ...prev,
+                            codeFiles: prev.codeFiles.map(f => f.id === state.activeCodeFileId ? { ...f, content: val } : f)
+                          }));
+                        }}
+                        placeholder="// Start coding here..."
+                      />
+                    </div>
+                    <div className="p-4 bg-gray-800 border-t border-gray-700">
+                      <div className="flex flex-col gap-3">
+                        <div className="flex items-center justify-between">
+                          <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{t.codeMode.updateCode}</label>
+                          {isFormatting && <span className="text-[10px] text-indigo-400 animate-pulse font-bold">{t.codeMode.formatting}</span>}
+                        </div>
+                        <div className="flex gap-3">
+                          <textarea 
+                            className="flex-1 bg-gray-900 border border-gray-700 rounded-xl p-3 text-xs text-gray-300 focus:ring-1 focus:ring-indigo-500 outline-none resize-none h-20"
+                            placeholder={t.codeMode.updatePlaceholder}
+                            value={codeUpdateInput}
+                            onChange={(e) => setCodeUpdateInput(e.target.value)}
+                          />
+                          <button 
+                            onClick={handleCodeUpdate}
+                            disabled={isFormatting || !codeUpdateInput.trim()}
+                            className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white px-6 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-2"
+                          >
+                            {isFormatting ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-magic"></i>}
+                            {t.codeMode.applyUpdate}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex-1 flex flex-col items-center justify-center text-gray-600 space-y-4">
+                    <i className="fas fa-code-branch text-5xl opacity-20"></i>
+                    <p className="text-sm font-medium">{t.codeMode.noFiles}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Code Summary Sidebar */}
+              <div className="w-full md:w-80 bg-gray-800 border-l border-gray-700 flex flex-col p-6 overflow-y-auto custom-scrollbar">
+                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-6">{t.codeMode.codeSummary}</h3>
+                <div className="prose prose-invert prose-xs">
+                  {overallCodeSummary ? (
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {overallCodeSummary}
+                    </ReactMarkdown>
+                  ) : (
+                    <p className="text-gray-500 italic text-xs">{t.codeMode.overallSummaryPlaceholder}</p>
+                  )}
+                </div>
               </div>
             </div>
           )}
