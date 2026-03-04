@@ -1,5 +1,6 @@
 
 export interface Message {
+  id: string;
   role: 'user' | 'model';
   content: string;
   timestamp: Date;
@@ -16,6 +17,7 @@ export interface SummaryHistoryItem {
 }
 
 export type AppLanguage = 'en' | 'th';
+export type OutputLanguage = 'auto' | 'en' | 'th';
 export type SummaryType = 'summary' | 'action_items' | 'key_takeaways' | 'bullets';
 export type ComplexityLevel = 'simple' | 'standard' | 'detailed' | 'technical';
 
@@ -30,6 +32,7 @@ export interface AnalysisState {
   complexity: ComplexityLevel;
   error: string | null;
   language: AppLanguage;
+  outputLanguage: OutputLanguage;
   uploadProgress: number;
   // New Settings
   temperature: number;
@@ -38,6 +41,9 @@ export interface AnalysisState {
   appMode: AppMode;
   codeFiles: CodeFile[];
   activeCodeFileId: string | null;
+  editMode: boolean;
+  summaryUndoStack: string[];
+  summaryRedoStack: string[];
 }
 
 export enum AppMode {

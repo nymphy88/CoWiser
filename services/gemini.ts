@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, GenerateContentResponse, Chat } from "@google/genai";
-import { Message, AppLanguage, AnalysisState } from "../types";
+import { Message, AppLanguage, AnalysisState, OutputLanguage } from "../types";
 
 const API_KEY = process.env.API_KEY || "";
 
@@ -16,7 +16,7 @@ export class GeminiService {
     context: string, 
     excludeCode: boolean, 
     focusKeywords: string,
-    language: AppLanguage,
+    outputLanguage: OutputLanguage,
     config: { 
       temperature: number; 
       maxOutputTokens: number; 
@@ -25,7 +25,15 @@ export class GeminiService {
       complexity?: string;
     }
   ): Promise<string> {
-    const langNote = language === 'th' ? "Respond in Thai language." : "Respond in English language.";
+    let langNote = "";
+    if (outputLanguage === 'auto') {
+      langNote = "Auto-detect the language of the provided content and respond in that same language.";
+    } else if (outputLanguage === 'th') {
+      langNote = "Respond in Thai language.";
+    } else {
+      langNote = "Respond in English language.";
+    }
+    
     const customInstruction = config.customPersona ? `\nUSER CUSTOM PERSONA/INSTRUCTION:\n${config.customPersona}` : "";
     
     const typeMap: Record<string, string> = {
@@ -71,19 +79,27 @@ export class GeminiService {
           topP: 0.95,
         },
       });
-      return response.text || (language === 'th' ? "ไม่พบสรุปข้อมูล" : "No summary generated.");
+      return response.text || (outputLanguage === 'th' ? "ไม่พบสรุปข้อมูล" : "No summary generated.");
     } catch (error) {
       console.error("Summarization error:", error);
-      throw new Error(language === 'th' ? "สรุปข้อมูลล้มเหลว โปรดตรวจสอบการเชื่อมต่อ" : "Failed to summarize the content. Please check your API key and connection.");
+      throw new Error(outputLanguage === 'th' ? "สรุปข้อมูลล้มเหลว โปรดตรวจสอบการเชื่อมต่อ" : "Failed to summarize the content. Please check your API key and connection.");
     }
   }
 
-  async summarizeChat(messages: Message[], language: AppLanguage): Promise<string> {
+  async summarizeChat(messages: Message[], outputLanguage: OutputLanguage): Promise<string> {
     const chatTranscript = messages
       .map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
       .join('\n\n');
 
-    const langNote = language === 'th' ? "Respond in Thai language." : "Respond in English language.";
+    let langNote = "";
+    if (outputLanguage === 'auto') {
+      langNote = "Auto-detect the language of the conversation and respond in that same language.";
+    } else if (outputLanguage === 'th') {
+      langNote = "Respond in Thai language.";
+    } else {
+      langNote = "Respond in English language.";
+    }
+
     const prompt = `
       Summarize the following chat conversation history between a user and an AI assistant.
       Provide the key takeaways, questions asked, and solutions provided.
@@ -101,7 +117,7 @@ export class GeminiService {
         contents: prompt,
         config: { temperature: 0.5 },
       });
-      return response.text || (language === 'th' ? "ไม่สามารถสรุปการสนทนาได้" : "Could not summarize conversation.");
+      return response.text || (outputLanguage === 'th' ? "ไม่สามารถสรุปการสนทนาได้" : "Could not summarize conversation.");
     } catch (error) {
       console.error("Chat summarization error:", error);
       throw new Error("Failed to summarize chat.");
@@ -203,10 +219,17 @@ export class GeminiService {
 
   async summarizeCode(
     codeFiles: { name: string; content: string }[],
-    language: AppLanguage
+    outputLanguage: OutputLanguage
   ): Promise<string> {
     const codeContext = codeFiles.map(f => `FILE: ${f.name}\nCONTENT:\n${f.content}`).join('\n\n---\n\n');
-    const langNote = language === 'th' ? "Respond in Thai language." : "Respond in English language.";
+    let langNote = "";
+    if (outputLanguage === 'auto') {
+      langNote = "Auto-detect the language of the codebase and respond in that same language.";
+    } else if (outputLanguage === 'th') {
+      langNote = "Respond in Thai language.";
+    } else {
+      langNote = "Respond in English language.";
+    }
     
     const prompt = `
       Summarize the following codebase. Provide an overall architectural overview and a brief summary of each file's purpose.

@@ -33,6 +33,7 @@ const translations = {
     errorGeneral: 'Please provide some content or upload a file to analyze.',
     clearConfirm: 'Are you sure you want to clear the conversation history?',
     analyzeFirst: 'Analyze context first to chat...',
+    retry: 'Retry',
     close: 'Close',
     historyTitle: 'Summary History',
     historyEmpty: 'No previous summaries found.',
@@ -50,6 +51,7 @@ const translations = {
     saveSettings: 'Apply Changes',
     typeLabel: 'Result Type',
     complexityLabel: 'Complexity',
+    outputLangLabel: 'Output Language',
     editMode: 'Edit Mode',
     undo: 'Undo',
     redo: 'Redo',
@@ -58,6 +60,11 @@ const translations = {
       action_items: 'Action Items',
       key_takeaways: 'Key Takeaways',
       bullets: 'Bullet Points'
+    },
+    outputLangs: {
+      auto: 'Auto Detect',
+      en: 'English',
+      th: 'Thai'
     },
     codeMode: {
       title: 'Code Editor',
@@ -107,6 +114,7 @@ const translations = {
     errorGeneral: 'โปรดระบุเนื้อหาหรืออัปโหลดไฟล์เพื่อวิเคราะห์',
     clearConfirm: 'คุณแน่ใจหรือไม่ว่าต้องการล้างประวัติการสนทนา?',
     analyzeFirst: 'วิเคราะห์เนื้อหาก่อนเพื่อเริ่มแชท...',
+    retry: 'ลองใหม่',
     close: 'ปิด',
     historyTitle: 'ประวัติการสรุป',
     historyEmpty: 'ไม่พบประวัติการสรุปก่อนหน้า',
@@ -124,6 +132,7 @@ const translations = {
     saveSettings: 'ปรับใช้การเปลี่ยนแปลง',
     typeLabel: 'รูปแบบผลลัพธ์',
     complexityLabel: 'ระดับความละเอียด',
+    outputLangLabel: 'ภาษาของผลลัพธ์',
     editMode: 'โหมดแก้ไข',
     undo: 'เลิกทำ',
     redo: 'ทำซ้ำ',
@@ -132,6 +141,11 @@ const translations = {
       action_items: 'รายการสิ่งที่ต้องทำ',
       key_takeaways: 'ประเด็นสำคัญ',
       bullets: 'รายการหัวข้อ'
+    },
+    outputLangs: {
+      auto: 'ตรวจจับอัตโนมัติ',
+      en: 'อังกฤษ',
+      th: 'ไทย'
     },
     codeMode: {
       title: 'ตัวแก้ไขโค้ด',
@@ -176,12 +190,16 @@ const App: React.FC = () => {
           customPersona: parsed.customPersona ?? '',
           summaryType: parsed.summaryType ?? 'summary',
           complexity: parsed.complexity ?? 'standard',
+          outputLanguage: parsed.outputLanguage ?? 'auto',
           appMode: parsed.appMode ?? AppMode.ANALYSIS,
           codeFiles: (parsed.codeFiles || []).map((f: any) => ({
             ...f,
             lastUpdated: new Date(f.lastUpdated)
           })),
           activeCodeFileId: parsed.activeCodeFileId ?? null,
+          editMode: parsed.editMode ?? false,
+          summaryUndoStack: parsed.summaryUndoStack ?? [],
+          summaryRedoStack: parsed.summaryRedoStack ?? [],
           summaryHistory: (parsed.summaryHistory || []).map((h: any) => ({
             ...h,
             timestamp: new Date(h.timestamp)
@@ -200,6 +218,7 @@ const App: React.FC = () => {
       focusKeywords: '',
       summaryType: 'summary',
       complexity: 'standard',
+      outputLanguage: 'auto',
       error: null,
       language: 'en',
       uploadProgress: 0,
@@ -208,7 +227,10 @@ const App: React.FC = () => {
       customPersona: '',
       appMode: AppMode.ANALYSIS,
       codeFiles: [],
-      activeCodeFileId: null
+      activeCodeFileId: null,
+      editMode: false,
+      summaryUndoStack: [],
+      summaryRedoStack: []
     };
   });
 
@@ -219,6 +241,7 @@ const App: React.FC = () => {
         const parsed = JSON.parse(saved);
         return parsed.map((m: any) => ({
           ...m,
+          id: m.id || Math.random().toString(36).substring(2, 9),
           timestamp: new Date(m.timestamp)
         }));
       } catch (e) {
@@ -240,16 +263,12 @@ const App: React.FC = () => {
   const [showChatSummaryModal, setShowChatSummaryModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [isEditingSummary, setIsEditingSummary] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(384); // Default 384px (w-96)
   const [isResizing, setIsResizing] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
   const [past, setPast] = useState<string[]>([]);
   const [future, setFuture] = useState<string[]>([]);
-
-  const [summaryPast, setSummaryPast] = useState<string[]>([]);
-  const [summaryFuture, setSummaryFuture] = useState<string[]>([]);
 
   const [newFileName, setNewFileName] = useState('');
   const [codeUpdateInput, setCodeUpdateInput] = useState('');
@@ -321,27 +340,36 @@ const App: React.FC = () => {
 
   const updateSummaryWithHistory = useCallback((newText: string) => {
     if (newText === state.summary) return;
-    setSummaryPast(prev => [...prev, state.summary]);
-    setSummaryFuture([]);
-    setState(prev => ({ ...prev, summary: newText }));
+    setState(prev => ({ 
+      ...prev, 
+      summary: newText,
+      summaryUndoStack: [...prev.summaryUndoStack, prev.summary],
+      summaryRedoStack: []
+    }));
   }, [state.summary]);
 
   const handleSummaryUndo = () => {
-    if (summaryPast.length === 0) return;
-    const previous = summaryPast[summaryPast.length - 1];
-    const newPast = summaryPast.slice(0, summaryPast.length - 1);
-    setSummaryFuture(prev => [state.summary, ...prev]);
-    setSummaryPast(newPast);
-    setState(prev => ({ ...prev, summary: previous }));
+    if (state.summaryUndoStack.length === 0) return;
+    const previous = state.summaryUndoStack[state.summaryUndoStack.length - 1];
+    const newUndoStack = state.summaryUndoStack.slice(0, state.summaryUndoStack.length - 1);
+    setState(prev => ({ 
+      ...prev, 
+      summary: previous,
+      summaryUndoStack: newUndoStack,
+      summaryRedoStack: [prev.summary, ...prev.summaryRedoStack]
+    }));
   };
 
   const handleSummaryRedo = () => {
-    if (summaryFuture.length === 0) return;
-    const next = summaryFuture[0];
-    const newFuture = summaryFuture.slice(1);
-    setSummaryPast(prev => [...prev, state.summary]);
-    setSummaryFuture(newFuture);
-    setState(prev => ({ ...prev, summary: next }));
+    if (state.summaryRedoStack.length === 0) return;
+    const next = state.summaryRedoStack[0];
+    const newRedoStack = state.summaryRedoStack.slice(1);
+    setState(prev => ({ 
+      ...prev, 
+      summary: next,
+      summaryUndoStack: [...prev.summaryUndoStack, prev.summary],
+      summaryRedoStack: newRedoStack
+    }));
   };
 
   const startResizing = useCallback((e: React.MouseEvent) => {
@@ -476,7 +504,7 @@ const App: React.FC = () => {
         state.rawContext,
         state.excludeCode,
         state.focusKeywords,
-        state.language,
+        state.outputLanguage,
         { 
           temperature: state.temperature, 
           maxOutputTokens: state.maxOutputTokens, 
@@ -530,7 +558,7 @@ const App: React.FC = () => {
     if (messages.length === 0) return;
     setIsSummarizingChat(true);
     try {
-      const summary = await geminiService.summarizeChat(messages, state.language);
+      const summary = await geminiService.summarizeChat(messages, state.outputLanguage);
       setChatSummary(summary);
       setShowChatSummaryModal(true);
     } catch (err: any) {
@@ -544,10 +572,16 @@ const App: React.FC = () => {
     setIsChatting(true);
     try {
       const response = await geminiService.sendMessage(text);
-      const aiMsg: Message = { role: 'model', content: response, timestamp: new Date() };
+      const aiMsg: Message = { 
+        id: Date.now().toString() + "-ai",
+        role: 'model', 
+        content: response, 
+        timestamp: new Date() 
+      };
       setMessages(prev => [...prev, aiMsg]);
     } catch (err: any) {
       const errMsg: Message = { 
+        id: Date.now().toString() + "-err",
         role: 'model', 
         content: (state.language === 'th' ? "เกิดข้อผิดพลาดในการประมวลผล: " : "Oops! Something went wrong while processing your message. ") + err.message, 
         timestamp: new Date(),
@@ -563,22 +597,45 @@ const App: React.FC = () => {
     e.preventDefault();
     if (!inputMessage.trim() || state.isProcessing || isChatting) return;
     const userText = inputMessage;
-    const userMsg: Message = { role: 'user', content: userText, timestamp: new Date() };
+    const userMsg: Message = { 
+      id: Date.now().toString() + "-user",
+      role: 'user', 
+      content: userText, 
+      timestamp: new Date() 
+    };
     setMessages(prev => [...prev, userMsg]);
     setInputMessage('');
     await processChatMessage(userText);
   };
 
-  const handleRetry = async () => {
-    const lastUserMessage = [...messages].reverse().find(m => m.role === 'user');
-    if (lastUserMessage) {
-      setMessages(prev => {
-        const last = prev[prev.length - 1];
-        if (last && last.role === 'model' && last.isError) return prev.slice(0, -1);
-        return prev;
-      });
-      await processChatMessage(lastUserMessage.content);
+  const handleRetry = async (failedId: string) => {
+    if (state.isProcessing || isChatting) return;
+    
+    let userMessageToRetry = "";
+    
+    setMessages(prev => {
+      const failedIdx = prev.findIndex(m => m.id === failedId);
+      if (failedIdx === -1) return prev;
+
+      const newMessages = [...prev];
+      // Look for the user message before this error
+      for (let i = failedIdx - 1; i >= 0; i--) {
+        if (newMessages[i].role === 'user') {
+          userMessageToRetry = newMessages[i].content;
+          break;
+        }
+      }
+      newMessages.splice(failedIdx, 1);
+      return newMessages;
+    });
+
+    if (userMessageToRetry) {
+      await processChatMessage(userMessageToRetry);
     }
+  };
+
+  const handleDismissError = (id: string) => {
+    setMessages(prev => prev.filter(m => m.id !== id));
   };
 
   const handleClearHistory = () => {
@@ -644,7 +701,7 @@ const App: React.FC = () => {
       setCodeUpdateInput('');
       
       // Auto-summarize codebase after update
-      const summary = await geminiService.summarizeCode(updatedFiles, state.language);
+      const summary = await geminiService.summarizeCode(updatedFiles, state.outputLanguage);
       setOverallCodeSummary(summary);
     } catch (err: any) {
       alert(err.message);
@@ -801,7 +858,7 @@ const App: React.FC = () => {
             </div>
           </div>
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <div className="space-y-1.5">
                 <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider px-1">{t.typeLabel}</label>
                 <select 
@@ -822,6 +879,18 @@ const App: React.FC = () => {
                   onChange={(e) => setState(prev => ({ ...prev, complexity: e.target.value as any }))}
                 >
                   {Object.entries(t.complexities).map(([key, label]) => (
+                    <option key={key} value={key}>{label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider px-1">{t.outputLangLabel}</label>
+                <select 
+                  className="w-full p-2.5 bg-white border border-gray-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500 outline-none transition-all cursor-pointer"
+                  value={state.outputLanguage}
+                  onChange={(e) => setState(prev => ({ ...prev, outputLanguage: e.target.value as any }))}
+                >
+                  {Object.entries(t.outputLangs).map(([key, label]) => (
                     <option key={key} value={key}>{label}</option>
                   ))}
                 </select>
@@ -880,29 +949,31 @@ const App: React.FC = () => {
           <div className="flex items-center gap-2 pb-1">
             {activeTab === TabType.SUMMARY && state.summary && (
               <div className="flex items-center gap-2 mr-2 pr-2 border-r border-gray-200">
-                <div className="flex items-center gap-1 mr-2">
-                  <button 
-                    onClick={handleSummaryUndo} 
-                    disabled={summaryPast.length === 0} 
-                    className="text-xs text-gray-400 hover:text-indigo-600 disabled:opacity-30 transition-all p-2 rounded-lg hover:bg-gray-50" 
-                    title={t.undo}
-                  >
-                    <i className="fas fa-undo"></i>
-                  </button>
-                  <button 
-                    onClick={handleSummaryRedo} 
-                    disabled={summaryFuture.length === 0} 
-                    className="text-xs text-gray-400 hover:text-indigo-600 disabled:opacity-30 transition-all p-2 rounded-lg hover:bg-gray-50" 
-                    title={t.redo}
-                  >
-                    <i className="fas fa-redo"></i>
-                  </button>
-                </div>
+                {state.editMode && (
+                  <div className="flex items-center gap-1 mr-2">
+                    <button 
+                      onClick={handleSummaryUndo} 
+                      disabled={state.summaryUndoStack.length === 0} 
+                      className="text-xs text-gray-400 hover:text-indigo-600 disabled:opacity-30 transition-all p-2 rounded-lg hover:bg-gray-50" 
+                      title={t.undo}
+                    >
+                      <i className="fas fa-undo"></i>
+                    </button>
+                    <button 
+                      onClick={handleSummaryRedo} 
+                      disabled={state.summaryRedoStack.length === 0} 
+                      className="text-xs text-gray-400 hover:text-indigo-600 disabled:opacity-30 transition-all p-2 rounded-lg hover:bg-gray-50" 
+                      title={t.redo}
+                    >
+                      <i className="fas fa-redo"></i>
+                    </button>
+                  </div>
+                )}
                 <button 
-                  onClick={() => setIsEditingSummary(!isEditingSummary)} 
-                  className={`text-xs font-bold px-4 py-2 rounded-lg transition-all flex items-center gap-2 ${isEditingSummary ? 'bg-indigo-600 text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                  onClick={() => setState(prev => ({ ...prev, editMode: !prev.editMode }))} 
+                  className={`text-xs font-bold px-4 py-2 rounded-lg transition-all flex items-center gap-2 ${state.editMode ? 'bg-indigo-600 text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                 >
-                  <i className={`fas ${isEditingSummary ? 'fa-check' : 'fa-edit'}`}></i>
+                  <i className={`fas ${state.editMode ? 'fa-check' : 'fa-edit'}`}></i>
                   {t.editMode}
                 </button>
               </div>
@@ -975,7 +1046,7 @@ const App: React.FC = () => {
                           <button onClick={handleExport} className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-semibold rounded-lg transition-colors" title={t.export}><i className="fas fa-file-export"></i>{t.export}</button>
                         </div>
                       </div>
-                      {isEditingSummary ? (
+                      {state.editMode ? (
                         <textarea
                           className="w-full min-h-[400px] p-6 border border-indigo-100 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-gray-700 leading-relaxed resize-y bg-indigo-50/30 font-sans"
                           value={state.summary}
@@ -1008,14 +1079,14 @@ const App: React.FC = () => {
                         <p className="text-center whitespace-pre-wrap">{searchTerm ? 'No matches found.' : t.chatDefault}</p>
                       </div>
                     )}
-                    {filteredMessages.map((msg, idx) => (
-                      <div key={idx} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                    {filteredMessages.map((msg) => (
+                      <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
                         <div className="mb-1 px-2 flex items-center gap-2">
                           <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{msg.role === 'user' ? (state.language === 'th' ? 'คุณ' : 'You') : (state.language === 'th' ? 'ผู้ช่วย' : 'Assistant')}</span>
                         </div>
-                        <div className={`max-w-[85%] p-4 rounded-2xl shadow-sm relative group ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : msg.isError ? 'bg-red-50 text-red-800 border border-red-200 rounded-tl-none' : 'bg-white text-gray-800 border border-gray-100 rounded-tl-none'}`}>
+                        <div className={`max-w-[85%] p-4 rounded-2xl shadow-sm relative group ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : msg.isError ? 'bg-red-50 text-red-800 border-2 border-red-200 rounded-tl-none' : 'bg-white text-gray-800 border border-gray-100 rounded-tl-none'}`}>
                           <div className="flex items-start gap-2">
-                            {msg.isError && <i className="fas fa-exclamation-triangle mt-1"></i>}
+                            {msg.isError && <i className="fas fa-exclamation-circle mt-1 text-red-500"></i>}
                             <div className="text-sm markdown-body">
                               <ReactMarkdown remarkPlugins={[remarkGfm]}>
                                 {msg.content}
@@ -1024,7 +1095,23 @@ const App: React.FC = () => {
                           </div>
                           <div className="flex items-center justify-between mt-2 pt-2 border-t border-black/5">
                             <span className={`text-[10px] block opacity-50`}>{msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                            {msg.isError && <button onClick={handleRetry} className="text-[10px] font-bold underline hover:no-underline transition-all flex items-center gap-1"><i className="fas fa-redo text-[8px]"></i>Retry</button>}
+                            {msg.isError && (
+                              <div className="flex items-center gap-2">
+                                <button 
+                                  onClick={() => handleRetry(msg.id)} 
+                                  className="text-[10px] font-bold bg-red-100 text-red-700 px-2 py-1 rounded-md hover:bg-red-200 transition-all flex items-center gap-1"
+                                >
+                                  <i className="fas fa-redo text-[8px]"></i>
+                                  {t.retry}
+                                </button>
+                                <button 
+                                  onClick={() => handleDismissError(msg.id)} 
+                                  className="text-[10px] font-bold bg-gray-100 text-gray-600 px-2 py-1 rounded-md hover:bg-gray-200 transition-all"
+                                >
+                                  {t.close}
+                                </button>
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>
