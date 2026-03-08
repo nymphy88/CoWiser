@@ -23,6 +23,9 @@ export class GeminiService {
       customPersona?: string;
       summaryType?: string;
       complexity?: string;
+      topicIntensity?: number;
+      excludeUrls?: boolean;
+      excludeDates?: boolean;
     }
   ): Promise<string> {
     let langNote = "";
@@ -53,14 +56,22 @@ export class GeminiService {
     const typeStr = typeMap[config.summaryType || 'summary'];
     const complexityStr = complexityMap[config.complexity || 'standard'];
 
+    const intensity = config.topicIntensity ?? 50;
+    const intensityNote = intensity < 30 ? "Keep the summary broad and high-level, avoiding deep dives into specific sub-topics." :
+                          intensity > 70 ? "Provide a highly focused and intense analysis of the main topics, exploring them in depth." :
+                          "Provide a standard level of topic focus and depth.";
+
     const prompt = `
       Please provide ${typeStr} of the following content.
       ${langNote}
       ${customInstruction}
       
       COMPLEXITY REQUIREMENT: ${complexityStr}
+      TOPIC INTENSITY: ${intensityNote} (Intensity Level: ${intensity}/100)
       
-      ${excludeCode ? "IMPORTANT: Exclude all technical code blocks, snippets, or implementation details. Focus only on the conceptual discussion and outcomes." : "Include relevant code concepts if they are central to the discussion."}
+      ${excludeCode ? "IMPORTANT: Exclude all technical code blocks, snippets, or implementation details." : "Include relevant code concepts if they are central to the discussion."}
+      ${config.excludeUrls ? "IMPORTANT: Exclude all URLs, links, and web addresses from the output." : ""}
+      ${config.excludeDates ? "IMPORTANT: Exclude all specific dates, times, and chronological markers from the output." : ""}
       ${focusKeywords ? `ADDITIONAL FOCUS: Prioritize information related to: ${focusKeywords}` : ""}
 
       CONTENT TO SUMMARIZE:
@@ -152,8 +163,10 @@ export class GeminiService {
           RULES:
           1. Answer questions strictly based on the provided context.
           2. ${state.excludeCode ? "If the user asks for code, explain the logic but do not provide the actual code blocks as per their 'Exclude Code' preference." : "You may provide code snippets if requested and present in the context."}
-          3. If the answer is not in the context, state that clearly in the target language (${state.language}).
-          4. Be concise and professional.
+          3. ${state.excludeUrls ? "IMPORTANT: Do not include any URLs, links, or web addresses in your responses." : ""}
+          4. ${state.excludeDates ? "IMPORTANT: Do not include any specific dates, times, or chronological markers in your responses." : ""}
+          5. If the answer is not in the context, state that clearly in the target language (${state.language}).
+          6. Be concise and professional.
           ${customInstruction}
         `,
         temperature: state.temperature,

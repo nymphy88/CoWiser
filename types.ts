@@ -13,6 +13,9 @@ export interface SummaryHistoryItem {
   summary: string;
   rawContext: string;
   excludeCode: boolean;
+  excludeUrls: boolean;
+  excludeDates: boolean;
+  topicIntensity: number;
   focusKeywords: string;
 }
 
@@ -44,6 +47,9 @@ export interface AnalysisState {
   editMode: boolean;
   summaryUndoStack: string[];
   summaryRedoStack: string[];
+  topicIntensity: number;
+  excludeUrls: boolean;
+  excludeDates: boolean;
 }
 
 export enum AppMode {

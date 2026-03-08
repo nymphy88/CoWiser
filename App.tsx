@@ -14,6 +14,11 @@ const translations = {
     dropZoneSubtext: 'Supports .txt and .pdf documents',
     placeholder: 'Paste content, links, or upload a document...',
     excludeCode: 'Exclude Code Blocks',
+    excludeUrls: 'Exclude URLs',
+    excludeDates: 'Exclude Dates',
+    topicIntensity: 'Topic Intensity',
+    topicIntensityLow: 'Broad',
+    topicIntensityHigh: 'Focused',
     focusLabel: 'Custom Specific Focus',
     focusPlaceholder: 'e.g. Budget, Deadlines, UX Design',
     analyzeBtn: 'Analyze Context',
@@ -95,6 +100,11 @@ const translations = {
     dropZoneSubtext: 'รองรับเอกสาร .txt และ .pdf',
     placeholder: 'วางเนื้อหา ลิงก์ หรืออัปโหลดเอกสาร...',
     excludeCode: 'ไม่รวมบล็อกโค้ด',
+    excludeUrls: 'ไม่รวม URL',
+    excludeDates: 'ไม่รวมวันที่',
+    topicIntensity: 'ความเข้มข้นของหัวข้อ',
+    topicIntensityLow: 'กว้าง',
+    topicIntensityHigh: 'เจาะจง',
     focusLabel: 'เน้นหัวข้อเฉพาะเจาะจง',
     focusPlaceholder: 'เช่น งบประมาณ, กำหนดการ, การออกแบบ UX',
     analyzeBtn: 'วิเคราะห์เนื้อหา',
@@ -200,6 +210,9 @@ const App: React.FC = () => {
           editMode: parsed.editMode ?? false,
           summaryUndoStack: parsed.summaryUndoStack ?? [],
           summaryRedoStack: parsed.summaryRedoStack ?? [],
+          topicIntensity: parsed.topicIntensity ?? 50,
+          excludeUrls: parsed.excludeUrls ?? false,
+          excludeDates: parsed.excludeDates ?? false,
           summaryHistory: (parsed.summaryHistory || []).map((h: any) => ({
             ...h,
             timestamp: new Date(h.timestamp)
@@ -230,7 +243,10 @@ const App: React.FC = () => {
       activeCodeFileId: null,
       editMode: false,
       summaryUndoStack: [],
-      summaryRedoStack: []
+      summaryRedoStack: [],
+      topicIntensity: 50,
+      excludeUrls: false,
+      excludeDates: false
     };
   });
 
@@ -262,6 +278,8 @@ const App: React.FC = () => {
   const [isSummarizingChat, setIsSummarizingChat] = useState(false);
   const [showChatSummaryModal, setShowChatSummaryModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [lastUserMessage, setLastUserMessage] = useState<string>('');
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(384); // Default 384px (w-96)
   const [isResizing, setIsResizing] = useState(false);
@@ -510,7 +528,10 @@ const App: React.FC = () => {
           maxOutputTokens: state.maxOutputTokens, 
           customPersona: state.customPersona,
           summaryType: state.summaryType,
-          complexity: state.complexity
+          complexity: state.complexity,
+          topicIntensity: state.topicIntensity,
+          excludeUrls: state.excludeUrls,
+          excludeDates: state.excludeDates
         }
       );
       
@@ -520,6 +541,9 @@ const App: React.FC = () => {
         summary: result,
         rawContext: currentContext,
         excludeCode: currentExcludeCode,
+        excludeUrls: state.excludeUrls,
+        excludeDates: state.excludeDates,
+        topicIntensity: state.topicIntensity,
         focusKeywords: currentFocus
       };
 
@@ -545,6 +569,9 @@ const App: React.FC = () => {
         summary: item.summary,
         rawContext: item.rawContext,
         excludeCode: item.excludeCode,
+        excludeUrls: item.excludeUrls,
+        excludeDates: item.excludeDates,
+        topicIntensity: item.topicIntensity,
         focusKeywords: item.focusKeywords
       };
       setState(newState);
@@ -570,6 +597,7 @@ const App: React.FC = () => {
 
   const processChatMessage = async (text: string) => {
     setIsChatting(true);
+    setChatError(null);
     try {
       const response = await geminiService.sendMessage(text);
       const aiMsg: Message = { 
@@ -579,11 +607,14 @@ const App: React.FC = () => {
         timestamp: new Date() 
       };
       setMessages(prev => [...prev, aiMsg]);
+      setChatError(null);
     } catch (err: any) {
+      const errorText = (state.language === 'th' ? "เกิดข้อผิดพลาดในการประมวลผล: " : "Oops! Something went wrong while processing your message. ") + err.message;
+      setChatError(errorText);
       const errMsg: Message = { 
         id: Date.now().toString() + "-err",
         role: 'model', 
-        content: (state.language === 'th' ? "เกิดข้อผิดพลาดในการประมวลผล: " : "Oops! Something went wrong while processing your message. ") + err.message, 
+        content: errorText, 
         timestamp: new Date(),
         isError: true 
       };
@@ -597,6 +628,7 @@ const App: React.FC = () => {
     e.preventDefault();
     if (!inputMessage.trim() || state.isProcessing || isChatting) return;
     const userText = inputMessage;
+    setLastUserMessage(userText);
     const userMsg: Message = { 
       id: Date.now().toString() + "-user",
       role: 'user', 
@@ -630,6 +662,7 @@ const App: React.FC = () => {
     });
 
     if (userMessageToRetry) {
+      setLastUserMessage(userMessageToRetry);
       await processChatMessage(userMessageToRetry);
     }
   };
@@ -896,9 +929,38 @@ const App: React.FC = () => {
                 </select>
               </div>
             </div>
-            <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">
-              <label className="text-sm font-medium text-gray-700 cursor-pointer" htmlFor="exclude-code">{t.excludeCode}</label>
-              <input id="exclude-code" type="checkbox" className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500" checked={state.excludeCode} onChange={(e) => setState(prev => ({ ...prev, excludeCode: e.target.checked }))} />
+            <div className="space-y-2">
+              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">
+                <label className="text-sm font-medium text-gray-700 cursor-pointer" htmlFor="exclude-code">{t.excludeCode}</label>
+                <input id="exclude-code" type="checkbox" className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500" checked={state.excludeCode} onChange={(e) => setState(prev => ({ ...prev, excludeCode: e.target.checked }))} />
+              </div>
+              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">
+                <label className="text-sm font-medium text-gray-700 cursor-pointer" htmlFor="exclude-urls">{t.excludeUrls}</label>
+                <input id="exclude-urls" type="checkbox" className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500" checked={state.excludeUrls} onChange={(e) => setState(prev => ({ ...prev, excludeUrls: e.target.checked }))} />
+              </div>
+              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">
+                <label className="text-sm font-medium text-gray-700 cursor-pointer" htmlFor="exclude-dates">{t.excludeDates}</label>
+                <input id="exclude-dates" type="checkbox" className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500" checked={state.excludeDates} onChange={(e) => setState(prev => ({ ...prev, excludeDates: e.target.checked }))} />
+              </div>
+            </div>
+            <div className="space-y-2 p-3 bg-gray-50 rounded-lg border border-gray-200">
+              <div className="flex justify-between items-center">
+                <label className="text-sm font-medium text-gray-700">{t.topicIntensity}</label>
+                <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">{state.topicIntensity}%</span>
+              </div>
+              <input 
+                type="range" 
+                min="0" 
+                max="100" 
+                step="5"
+                className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-600" 
+                value={state.topicIntensity} 
+                onChange={(e) => setState(prev => ({ ...prev, topicIntensity: parseInt(e.target.value) }))} 
+              />
+              <div className="flex justify-between text-[10px] text-gray-400 font-medium">
+                <span>{t.topicIntensityLow}</span>
+                <span>{t.topicIntensityHigh}</span>
+              </div>
             </div>
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-2">{t.focusLabel}</label>
@@ -1133,6 +1195,29 @@ const App: React.FC = () => {
                   </div>
 
                   <div className="pt-4 mt-auto border-t border-gray-100">
+                    {chatError && (
+                      <div className="mb-3 p-3 bg-red-50 border border-red-100 rounded-xl flex items-center justify-between animate-in slide-in-from-bottom-2 duration-300">
+                        <div className="flex items-center gap-2 text-red-700 text-xs font-medium">
+                          <i className="fas fa-exclamation-triangle"></i>
+                          <span className="line-clamp-1">{chatError}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button 
+                            onClick={() => processChatMessage(lastUserMessage)}
+                            className="text-[10px] font-bold bg-red-600 text-white px-3 py-1 rounded-lg hover:bg-red-700 transition-all shadow-sm flex items-center gap-1"
+                          >
+                            <i className="fas fa-redo text-[8px]"></i>
+                            {t.retry}
+                          </button>
+                          <button 
+                            onClick={() => setChatError(null)}
+                            className="text-red-400 hover:text-red-600 p-1"
+                          >
+                            <i className="fas fa-times"></i>
+                          </button>
+                        </div>
+                      </div>
+                    )}
                     <form onSubmit={handleSendMessage} className="flex gap-2 relative">
                       <input type="text" placeholder={!state.summary ? t.analyzeFirst : isChatting ? t.thinking : t.chatPlaceholder} className="flex-1 p-4 pr-16 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none text-sm bg-white shadow-sm disabled:bg-gray-50 transition-all" value={inputMessage} onChange={(e) => setInputMessage(e.target.value)} disabled={!state.summary || isChatting} />
                       <button type="submit" disabled={!state.summary || state.isProcessing || isChatting || !inputMessage.trim()} className="absolute right-2 top-2 bottom-2 bg-indigo-600 text-white px-4 rounded-xl hover:bg-indigo-700 transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[48px]">
