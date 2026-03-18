@@ -1,15 +1,25 @@
 
-import { GoogleGenAI, GenerateContentResponse, Chat } from "@google/genai";
+import { GoogleGenAI, GenerateContentResponse, Chat, ThinkingLevel, Modality } from "@google/genai";
 import { Message, AppLanguage, AnalysisState, OutputLanguage } from "../types";
 
-const API_KEY = process.env.API_KEY || "";
+const API_KEY = process.env.GEMINI_API_KEY || "";
 
 export class GeminiService {
   private ai: GoogleGenAI;
   private chatInstance: Chat | null = null;
+  private currentApiKey: string = API_KEY;
 
   constructor() {
-    this.ai = new GoogleGenAI({ apiKey: API_KEY });
+    this.ai = new GoogleGenAI({ apiKey: this.currentApiKey });
+  }
+
+  setApiKey(key: string) {
+    if (key && key !== this.currentApiKey) {
+      this.currentApiKey = key;
+      this.ai = new GoogleGenAI({ apiKey: key });
+      // Reset chat instance if key changes to ensure it uses the new key
+      this.chatInstance = null;
+    }
   }
 
   async summarize(
@@ -26,6 +36,8 @@ export class GeminiService {
       topicIntensity?: number;
       excludeUrls?: boolean;
       excludeDates?: boolean;
+      isThinkingMode?: boolean;
+      isFastMode?: boolean;
     }
   ): Promise<string> {
     let langNote = "";
@@ -61,6 +73,18 @@ export class GeminiService {
                           intensity > 70 ? "Provide a highly focused and intense analysis of the main topics, exploring them in depth." :
                           "Provide a standard level of topic focus and depth.";
 
+    let model = "gemini-3-flash-preview";
+    let thinkingConfig = undefined;
+    let maxOutputTokens = config.maxOutputTokens;
+
+    if (config.isThinkingMode) {
+      model = "gemini-3.1-pro-preview";
+      thinkingConfig = { thinkingLevel: ThinkingLevel.HIGH };
+      maxOutputTokens = undefined; // Do not set maxOutputTokens for thinking mode as per instructions
+    } else if (config.isFastMode) {
+      model = "gemini-3.1-flash-lite-preview";
+    }
+
     const prompt = `
       Please provide ${typeStr} of the following content.
       ${langNote}
@@ -82,12 +106,13 @@ export class GeminiService {
 
     try {
       const response: GenerateContentResponse = await this.ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+        model,
         contents: prompt,
         config: {
           temperature: config.temperature,
-          maxOutputTokens: config.maxOutputTokens,
+          maxOutputTokens,
           topP: 0.95,
+          thinkingConfig
         },
       });
       return response.text || (outputLanguage === 'th' ? "ไม่พบสรุปข้อมูล" : "No summary generated.");
@@ -147,8 +172,20 @@ export class GeminiService {
 
     const customInstruction = state.customPersona ? `\nUSER CUSTOM PERSONA/INSTRUCTION:\n${state.customPersona}` : "";
 
+    let model = "gemini-3-flash-preview";
+    let thinkingConfig = undefined;
+    let maxOutputTokens = state.maxOutputTokens;
+
+    if (state.isThinkingMode) {
+      model = "gemini-3.1-pro-preview";
+      thinkingConfig = { thinkingLevel: ThinkingLevel.HIGH };
+      maxOutputTokens = undefined;
+    } else if (state.isFastMode) {
+      model = "gemini-3.1-flash-lite-preview";
+    }
+
     this.chatInstance = this.ai.chats.create({
-      model: 'gemini-3-flash-preview',
+      model,
       history: geminiHistory,
       config: {
         systemInstruction: `
@@ -170,7 +207,8 @@ export class GeminiService {
           ${customInstruction}
         `,
         temperature: state.temperature,
-        maxOutputTokens: state.maxOutputTokens
+        maxOutputTokens,
+        thinkingConfig
       },
     });
   }
@@ -262,6 +300,51 @@ export class GeminiService {
     } catch (error) {
       console.error("Code summarization error:", error);
       throw new Error("Failed to summarize code.");
+    }
+  }
+
+  async transcribeAudio(base64Audio: string): Promise<string> {
+    try {
+      const response: GenerateContentResponse = await this.ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: [
+          {
+            inlineData: {
+              mimeType: "audio/wav",
+              data: base64Audio,
+            },
+          },
+          {
+            text: "Transcribe the following audio precisely.",
+          },
+        ],
+      });
+      return response.text || "";
+    } catch (error) {
+      console.error("Transcription error:", error);
+      throw new Error("Failed to transcribe audio.");
+    }
+  }
+
+  async generateSpeech(text: string): Promise<string> {
+    try {
+      const response: GenerateContentResponse = await this.ai.models.generateContent({
+        model: "gemini-2.5-flash-preview-tts",
+        contents: [{ parts: [{ text }] }],
+        config: {
+          responseModalities: [Modality.AUDIO],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: 'Kore' },
+            },
+          },
+        },
+      });
+      const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+      return base64Audio || "";
+    } catch (error) {
+      console.error("TTS error:", error);
+      throw new Error("Failed to generate speech.");
     }
   }
 }

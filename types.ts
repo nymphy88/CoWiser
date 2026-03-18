@@ -47,9 +47,18 @@ export interface AnalysisState {
   editMode: boolean;
   summaryUndoStack: string[];
   summaryRedoStack: string[];
+  contextUndoStack: string[];
+  contextRedoStack: string[];
+  chatSummary: string | null;
+  activeTab: TabType;
+  sidebarWidth: number;
   topicIntensity: number;
   excludeUrls: boolean;
   excludeDates: boolean;
+  isThinkingMode: boolean;
+  isFastMode: boolean;
+  apiKeys: { key: string; label: string }[];
+  selectedApiKeyIndex: number | null;
 }
 
 export enum AppMode {

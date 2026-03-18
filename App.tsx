@@ -26,7 +26,9 @@ const translations = {
     chatTab: 'Ask Questions',
     clearChat: 'Clear Chat',
     summarizeChat: 'Summarize Chat',
+    summarizeChatSubtext: 'Generate a summary of this conversation',
     chatSummaryTitle: 'Conversation Summary',
+    readMore: 'Read More...',
     emptySummary: 'Paste content or upload a file to start.',
     thinking: 'Analyzing context...',
     reading: 'Reading file...',
@@ -45,6 +47,8 @@ const translations = {
     restore: 'Restore',
     view: 'View',
     historyBtn: 'History',
+    filtersLabel: 'Filters & Settings',
+    exclusionsLabel: 'Exclusions',
     restoreConfirm: 'Are you sure you want to restore this version? This will overwrite your current summary and context.',
     generatedOn: 'Generated on',
     searchPlaceholder: 'Search messages...',
@@ -90,7 +94,26 @@ const translations = {
       standard: 'Standard',
       detailed: 'Detailed',
       technical: 'Technical'
-    }
+    },
+    speak: 'Speak',
+    stop: 'Stop',
+    startRecording: 'Start Recording',
+    stopRecording: 'Stop Recording',
+    transcribing: 'Transcribing...',
+    fastMode: 'Fast Mode',
+    fastModeSub: 'Faster responses, lower cost',
+    thinkingMode: 'Thinking Mode',
+    thinkingModeSub: 'Deep reasoning for complex tasks',
+    apiManagement: 'API Key Management',
+    apiKeyLabel: 'API Key',
+    apiLabelPlaceholder: 'e.g. My Primary Key',
+    apiKeyPlaceholder: 'Enter your Gemini API key...',
+    addApiKey: 'Add Key',
+    noApiKeys: 'No custom API keys added. Using default environment key.',
+    revealKey: 'Reveal Key',
+    hideKey: 'Hide Key',
+    removeKey: 'Remove Key',
+    selectKey: 'Select this key'
   },
   th: {
     sidebarTitle: 'ContextWhisper',
@@ -112,7 +135,9 @@ const translations = {
     chatTab: 'ถามคำถาม',
     clearChat: 'ล้างประวัติแชท',
     summarizeChat: 'สรุปการสนทนา',
+    summarizeChatSubtext: 'สร้างสรุปของการสนทนานี้',
     chatSummaryTitle: 'สรุปการสนทนา',
+    readMore: 'อ่านเพิ่มเติม...',
     emptySummary: 'วางเนื้อหาหรืออัปโหลดไฟล์เพื่อเริ่มต้น',
     thinking: 'กำลังวิเคราะห์ข้อมูล...',
     reading: 'กำลังอ่านไฟล์...',
@@ -131,6 +156,8 @@ const translations = {
     restore: 'กู้คืน',
     view: 'ดู',
     historyBtn: 'ประวัติ',
+    filtersLabel: 'ตัวกรองและการตั้งค่า',
+    exclusionsLabel: 'การยกเว้น',
     restoreConfirm: 'คุณแน่ใจหรือไม่ว่าต้องการกู้คืนเวอร์ชันนี้? การดำเนินการนี้จะเขียนทับสรุปและเนื้อหาปัจจุบันของคุณ',
     generatedOn: 'สร้างเมื่อ',
     searchPlaceholder: 'ค้นหาข้อความ...',
@@ -176,7 +203,26 @@ const translations = {
       standard: 'มาตรฐาน',
       detailed: 'ละเอียด',
       technical: 'เชิงเทคนิค'
-    }
+    },
+    speak: 'อ่านออกเสียง',
+    stop: 'หยุด',
+    startRecording: 'เริ่มบันทึกเสียง',
+    stopRecording: 'หยุดบันทึกเสียง',
+    transcribing: 'กำลังแปลงเสียงเป็นข้อความ...',
+    fastMode: 'โหมดเน้นเร็ว',
+    fastModeSub: 'ตอบกลับเร็วขึ้นและประหยัดทรัพยากร',
+    thinkingMode: 'โหมดเน้นคิด',
+    thinkingModeSub: 'ใช้เหตุผลเชิงลึกสำหรับงานที่ซับซ้อน',
+    apiManagement: 'การจัดการ API Key',
+    apiKeyLabel: 'API Key',
+    apiLabelPlaceholder: 'เช่น คีย์หลักของฉัน',
+    apiKeyPlaceholder: 'ใส่ Gemini API key ของคุณ...',
+    addApiKey: 'เพิ่มคีย์',
+    noApiKeys: 'ยังไม่มีการเพิ่ม API key กำลังใช้คีย์เริ่มต้นจากระบบ',
+    revealKey: 'แสดงคีย์',
+    hideKey: 'ซ่อนคีย์',
+    removeKey: 'ลบคีย์',
+    selectKey: 'เลือกคีย์นี้'
   }
 };
 
@@ -210,9 +256,18 @@ const App: React.FC = () => {
           editMode: parsed.editMode ?? false,
           summaryUndoStack: parsed.summaryUndoStack ?? [],
           summaryRedoStack: parsed.summaryRedoStack ?? [],
+          contextUndoStack: parsed.contextUndoStack ?? [],
+          contextRedoStack: parsed.contextRedoStack ?? [],
+          chatSummary: parsed.chatSummary ?? null,
+          activeTab: parsed.activeTab ?? TabType.SUMMARY,
+          sidebarWidth: parsed.sidebarWidth ?? 384,
           topicIntensity: parsed.topicIntensity ?? 50,
           excludeUrls: parsed.excludeUrls ?? false,
           excludeDates: parsed.excludeDates ?? false,
+          isThinkingMode: parsed.isThinkingMode ?? false,
+          isFastMode: parsed.isFastMode ?? false,
+          apiKeys: parsed.apiKeys ?? [],
+          selectedApiKeyIndex: parsed.selectedApiKeyIndex ?? null,
           summaryHistory: (parsed.summaryHistory || []).map((h: any) => ({
             ...h,
             timestamp: new Date(h.timestamp)
@@ -244,9 +299,18 @@ const App: React.FC = () => {
       editMode: false,
       summaryUndoStack: [],
       summaryRedoStack: [],
+      contextUndoStack: [],
+      contextRedoStack: [],
+      chatSummary: null,
+      activeTab: TabType.SUMMARY,
+      sidebarWidth: 384,
       topicIntensity: 50,
       excludeUrls: false,
-      excludeDates: false
+      excludeDates: false,
+      isThinkingMode: false,
+      isFastMode: false,
+      apiKeys: [],
+      selectedApiKeyIndex: null
     };
   });
 
@@ -267,26 +331,21 @@ const App: React.FC = () => {
     return [];
   });
 
-  const [activeTab, setActiveTab] = useState<TabType>(TabType.SUMMARY);
   const [inputMessage, setInputMessage] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [isChatting, setIsChatting] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   
-  const [chatSummary, setChatSummary] = useState<string | null>(null);
   const [isSummarizingChat, setIsSummarizingChat] = useState(false);
   const [showChatSummaryModal, setShowChatSummaryModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const [lastUserMessage, setLastUserMessage] = useState<string>('');
   const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [sidebarWidth, setSidebarWidth] = useState(384); // Default 384px (w-96)
+  const [showFiltersDropdown, setShowFiltersDropdown] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
-
-  const [past, setPast] = useState<string[]>([]);
-  const [future, setFuture] = useState<string[]>([]);
 
   const [newFileName, setNewFileName] = useState('');
   const [codeUpdateInput, setCodeUpdateInput] = useState('');
@@ -296,7 +355,28 @@ const App: React.FC = () => {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [currentlySpeakingId, setCurrentlySpeakingId] = useState<string | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
+
+  const [newApiKey, setNewApiKey] = useState('');
+  const [newApiKeyLabel, setNewApiKeyLabel] = useState('');
+  const [revealedKeys, setRevealedKeys] = useState<Record<number, boolean>>({});
+
   const t = translations[state.language];
+
+  useEffect(() => {
+    // Update API key in service when selected key changes
+    if (state.selectedApiKeyIndex !== null && state.apiKeys[state.selectedApiKeyIndex]) {
+      geminiService.setApiKey(state.apiKeys[state.selectedApiKeyIndex].key);
+    } else {
+      // Revert to default environment key if no custom key is selected
+      geminiService.setApiKey(process.env.GEMINI_API_KEY || "");
+    }
+  }, [state.selectedApiKeyIndex, state.apiKeys]);
 
   useEffect(() => {
     const handleWindowResize = () => {
@@ -307,7 +387,7 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const { error, isProcessing, ...persistableState } = state;
+    const { error, isProcessing, uploadProgress, ...persistableState } = state;
     localStorage.setItem(STORAGE_KEYS.STATE, JSON.stringify(persistableState));
   }, [state]);
 
@@ -321,39 +401,72 @@ const App: React.FC = () => {
     }
   }, []);
 
-  const scrollToBottom = () => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (showFiltersDropdown && !target.closest('.relative')) {
+        setShowFiltersDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showFiltersDropdown]);
+
+  const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
+    if (chatEndRef.current) {
+      // Use a more robust scrolling method
+      const container = chatEndRef.current.parentElement;
+      if (container) {
+        if (behavior === "smooth") {
+          chatEndRef.current.scrollIntoView({ behavior, block: "end" });
+        } else {
+          container.scrollTop = container.scrollHeight;
+        }
+      }
+    }
   };
 
   useEffect(() => {
-    if (activeTab === TabType.CHAT && !searchTerm) {
-      scrollToBottom();
+    if (state.activeTab === TabType.CHAT && !searchTerm) {
+      // Use "auto" for tab switch to prevent jumping, "smooth" for new messages
+      const behavior = isChatting || messages.length > 0 ? "smooth" : "auto";
+      const timer = setTimeout(() => scrollToBottom(behavior as ScrollBehavior), 50);
+      return () => clearTimeout(timer);
     }
-  }, [messages, isChatting, activeTab, searchTerm]);
+  }, [messages, isChatting, state.activeTab, searchTerm]);
 
   const updateContextWithHistory = useCallback((newText: string) => {
     if (newText === state.rawContext) return;
-    setPast(prev => [...prev, state.rawContext]);
-    setFuture([]);
-    setState(prev => ({ ...prev, rawContext: newText }));
+    setState(prev => ({ 
+      ...prev, 
+      rawContext: newText,
+      contextUndoStack: [...prev.contextUndoStack, prev.rawContext],
+      contextRedoStack: []
+    }));
   }, [state.rawContext]);
 
   const handleUndo = () => {
-    if (past.length === 0) return;
-    const previous = past[past.length - 1];
-    const newPast = past.slice(0, past.length - 1);
-    setFuture(prev => [state.rawContext, ...prev]);
-    setPast(newPast);
-    setState(prev => ({ ...prev, rawContext: previous }));
+    if (state.contextUndoStack.length === 0) return;
+    const previous = state.contextUndoStack[state.contextUndoStack.length - 1];
+    const newUndoStack = state.contextUndoStack.slice(0, state.contextUndoStack.length - 1);
+    setState(prev => ({ 
+      ...prev, 
+      rawContext: previous,
+      contextUndoStack: newUndoStack,
+      contextRedoStack: [prev.rawContext, ...prev.contextRedoStack]
+    }));
   };
 
   const handleRedo = () => {
-    if (future.length === 0) return;
-    const next = future[0];
-    const newFuture = future.slice(1);
-    setPast(prev => [...prev, state.rawContext]);
-    setFuture(newFuture);
-    setState(prev => ({ ...prev, rawContext: next }));
+    if (state.contextRedoStack.length === 0) return;
+    const next = state.contextRedoStack[0];
+    const newRedoStack = state.contextRedoStack.slice(1);
+    setState(prev => ({ 
+      ...prev, 
+      rawContext: next,
+      contextUndoStack: [...prev.contextUndoStack, prev.rawContext],
+      contextRedoStack: newRedoStack
+    }));
   };
 
   const updateSummaryWithHistory = useCallback((newText: string) => {
@@ -403,7 +516,7 @@ const App: React.FC = () => {
     if (isResizing) {
       const newWidth = e.clientX;
       if (newWidth > 280 && newWidth < 600) {
-        setSidebarWidth(newWidth);
+        setState(prev => ({ ...prev, sidebarWidth: newWidth }));
       }
     }
   }, [isResizing]);
@@ -581,12 +694,122 @@ const App: React.FC = () => {
     }
   };
 
+  const handleSpeak = async (text: string, id: string) => {
+    if (currentlySpeakingId === id) {
+      if (audioPlayerRef.current) {
+        audioPlayerRef.current.pause();
+        setCurrentlySpeakingId(null);
+      }
+      return;
+    }
+
+    try {
+      setCurrentlySpeakingId(id);
+      const base64Audio = await geminiService.generateSpeech(text);
+      if (!base64Audio) throw new Error("No audio generated");
+
+      const audioBlob = await fetch(`data:audio/wav;base64,${base64Audio}`).then(r => r.blob());
+      const audioUrl = URL.createObjectURL(audioBlob);
+      
+      if (audioPlayerRef.current) {
+        audioPlayerRef.current.pause();
+      }
+      
+      const audio = new Audio(audioUrl);
+      audioPlayerRef.current = audio;
+      audio.onended = () => setCurrentlySpeakingId(null);
+      audio.play();
+    } catch (error) {
+      console.error("TTS error:", error);
+      setCurrentlySpeakingId(null);
+    }
+  };
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
+        const reader = new FileReader();
+        reader.readAsDataURL(audioBlob);
+        reader.onloadend = async () => {
+          const base64Audio = (reader.result as string).split(',')[1];
+          setIsTranscribing(true);
+          try {
+            const transcription = await geminiService.transcribeAudio(base64Audio);
+            if (transcription) {
+              setInputMessage(prev => prev ? `${prev} ${transcription}` : transcription);
+            }
+          } catch (error) {
+            console.error("Transcription error:", error);
+          } finally {
+            setIsTranscribing(false);
+          }
+        };
+        
+        // Stop all tracks to release microphone
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (error) {
+      console.error("Microphone access error:", error);
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
+  const handleAddApiKey = () => {
+    if (!newApiKey.trim()) return;
+    const newKeyObj = { key: newApiKey.trim(), label: newApiKeyLabel.trim() || `Key ${state.apiKeys.length + 1}` };
+    setState(prev => ({
+      ...prev,
+      apiKeys: [...prev.apiKeys, newKeyObj],
+      selectedApiKeyIndex: prev.selectedApiKeyIndex === null ? 0 : prev.selectedApiKeyIndex
+    }));
+    setNewApiKey('');
+    setNewApiKeyLabel('');
+  };
+
+  const handleRemoveApiKey = (index: number) => {
+    setState(prev => {
+      const newKeys = prev.apiKeys.filter((_, i) => i !== index);
+      let newSelectedIndex = prev.selectedApiKeyIndex;
+      if (newSelectedIndex === index) {
+        newSelectedIndex = newKeys.length > 0 ? 0 : null;
+      } else if (newSelectedIndex !== null && newSelectedIndex > index) {
+        newSelectedIndex--;
+      }
+      return { ...prev, apiKeys: newKeys, selectedApiKeyIndex: newSelectedIndex };
+    });
+  };
+
+  const toggleKeyReveal = (index: number) => {
+    setRevealedKeys(prev => ({ ...prev, [index]: !prev[index] }));
+  };
+
   const handleSummarizeChat = async () => {
     if (messages.length === 0) return;
     setIsSummarizingChat(true);
     try {
       const summary = await geminiService.summarizeChat(messages, state.outputLanguage);
-      setChatSummary(summary);
+      setState(prev => ({ ...prev, chatSummary: summary }));
       setShowChatSummaryModal(true);
     } catch (err: any) {
       alert("Failed to summarize conversation: " + err.message);
@@ -798,7 +1021,7 @@ const App: React.FC = () => {
     <div className="min-h-screen flex flex-col md:flex-row bg-gray-50 text-gray-900">
       {/* Sidebar */}
       <aside 
-        style={{ width: isMobile ? '100%' : `${sidebarWidth}px` }}
+        style={{ width: isMobile ? '100%' : `${state.sidebarWidth}px` }}
         className="bg-white border-r border-gray-200 flex flex-col p-6 shadow-sm overflow-y-auto relative group/sidebar"
       >
         <div className="flex items-center justify-between mb-8">
@@ -879,8 +1102,8 @@ const App: React.FC = () => {
             <div className="flex flex-col gap-1">
               <div className="flex items-center justify-between mb-1 px-1">
                 <div className="flex items-center gap-2">
-                  <button onClick={handleUndo} disabled={past.length === 0} className="text-xs text-gray-400 hover:text-indigo-600 disabled:opacity-30 transition-all p-1" title="Undo"><i className="fas fa-undo"></i></button>
-                  <button onClick={handleRedo} disabled={future.length === 0} className="text-xs text-gray-400 hover:text-indigo-600 disabled:opacity-30 transition-all p-1" title="Redo"><i className="fas fa-redo"></i></button>
+                  <button onClick={handleUndo} disabled={state.contextUndoStack.length === 0} className="text-xs text-gray-400 hover:text-indigo-600 disabled:opacity-30 transition-all p-1" title="Undo"><i className="fas fa-undo"></i></button>
+                  <button onClick={handleRedo} disabled={state.contextRedoStack.length === 0} className="text-xs text-gray-400 hover:text-indigo-600 disabled:opacity-30 transition-all p-1" title="Redo"><i className="fas fa-redo"></i></button>
                 </div>
                 <span className="text-[10px] text-gray-400 font-mono uppercase tracking-widest">Source Preview</span>
               </div>
@@ -891,58 +1114,110 @@ const App: React.FC = () => {
             </div>
           </div>
           <div className="space-y-4">
-            <div className="grid grid-cols-3 gap-3">
-              <div className="space-y-1.5">
-                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider px-1">{t.typeLabel}</label>
-                <select 
-                  className="w-full p-2.5 bg-white border border-gray-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500 outline-none transition-all cursor-pointer"
-                  value={state.summaryType}
-                  onChange={(e) => setState(prev => ({ ...prev, summaryType: e.target.value as any }))}
-                >
-                  {Object.entries(t.types).map(([key, label]) => (
-                    <option key={key} value={key}>{label}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider px-1">{t.complexityLabel}</label>
-                <select 
-                  className="w-full p-2.5 bg-white border border-gray-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500 outline-none transition-all cursor-pointer"
-                  value={state.complexity}
-                  onChange={(e) => setState(prev => ({ ...prev, complexity: e.target.value as any }))}
-                >
-                  {Object.entries(t.complexities).map(([key, label]) => (
-                    <option key={key} value={key}>{label}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider px-1">{t.outputLangLabel}</label>
-                <select 
-                  className="w-full p-2.5 bg-white border border-gray-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500 outline-none transition-all cursor-pointer"
-                  value={state.outputLanguage}
-                  onChange={(e) => setState(prev => ({ ...prev, outputLanguage: e.target.value as any }))}
-                >
-                  {Object.entries(t.outputLangs).map(([key, label]) => (
-                    <option key={key} value={key}>{label}</option>
-                  ))}
-                </select>
-              </div>
+            <div className="relative">
+              <button 
+                onClick={() => setShowFiltersDropdown(!showFiltersDropdown)}
+                className="w-full flex items-center justify-between p-3 bg-white border border-gray-200 rounded-xl text-sm font-semibold text-gray-700 hover:border-indigo-300 transition-all shadow-sm"
+              >
+                <div className="flex items-center gap-2">
+                  <i className="fas fa-filter text-indigo-600"></i>
+                  <span>{t.filtersLabel}</span>
+                </div>
+                <i className={`fas fa-chevron-${showFiltersDropdown ? 'up' : 'down'} text-[10px] text-gray-400`}></i>
+              </button>
+
+              {showFiltersDropdown && (
+                <div className="absolute top-full left-0 right-0 mt-2 p-4 bg-white border border-gray-100 rounded-2xl shadow-xl z-50 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+                  <div className="grid grid-cols-1 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider px-1">{t.typeLabel}</label>
+                      <select 
+                        className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500 outline-none transition-all cursor-pointer"
+                        value={state.summaryType}
+                        onChange={(e) => setState(prev => ({ ...prev, summaryType: e.target.value as any }))}
+                      >
+                        {Object.entries(t.types).map(([key, label]) => (
+                          <option key={key} value={key}>{label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider px-1">{t.complexityLabel}</label>
+                      <select 
+                        className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500 outline-none transition-all cursor-pointer"
+                        value={state.complexity}
+                        onChange={(e) => setState(prev => ({ ...prev, complexity: e.target.value as any }))}
+                      >
+                        {Object.entries(t.complexities).map(([key, label]) => (
+                          <option key={key} value={key}>{label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider px-1">{t.outputLangLabel}</label>
+                      <select 
+                        className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500 outline-none transition-all cursor-pointer"
+                        value={state.outputLanguage}
+                        onChange={(e) => setState(prev => ({ ...prev, outputLanguage: e.target.value as any }))}
+                      >
+                        {Object.entries(t.outputLangs).map(([key, label]) => (
+                          <option key={key} value={key}>{label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-gray-100 space-y-2">
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider px-1 mb-2">{t.exclusionsLabel}</label>
+                    <div className="grid grid-cols-1 gap-2">
+                      <label className="flex items-center justify-between p-2 hover:bg-gray-50 rounded-lg cursor-pointer transition-colors group">
+                        <span className="text-xs text-gray-600 group-hover:text-indigo-600 transition-colors">{t.excludeCode}</span>
+                        <input type="checkbox" className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500" checked={state.excludeCode} onChange={(e) => setState(prev => ({ ...prev, excludeCode: e.target.checked }))} />
+                      </label>
+                      <label className="flex items-center justify-between p-2 hover:bg-gray-50 rounded-lg cursor-pointer transition-colors group">
+                        <span className="text-xs text-gray-600 group-hover:text-indigo-600 transition-colors">{t.excludeUrls}</span>
+                        <input type="checkbox" className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500" checked={state.excludeUrls} onChange={(e) => setState(prev => ({ ...prev, excludeUrls: e.target.checked }))} />
+                      </label>
+                      <label className="flex items-center justify-between p-2 hover:bg-gray-50 rounded-lg cursor-pointer transition-colors group">
+                        <span className="text-xs text-gray-600 group-hover:text-indigo-600 transition-colors">{t.excludeDates}</span>
+                        <input type="checkbox" className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500" checked={state.excludeDates} onChange={(e) => setState(prev => ({ ...prev, excludeDates: e.target.checked }))} />
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-gray-100 space-y-2">
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider px-1 mb-2">AI Intelligence</label>
+                    <div className="grid grid-cols-1 gap-2">
+                      <label className={`flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all border ${state.isFastMode ? 'bg-emerald-50 border-emerald-100' : 'hover:bg-gray-50 border-transparent'}`}>
+                        <div className="flex flex-col">
+                          <span className={`text-xs font-bold ${state.isFastMode ? 'text-emerald-700' : 'text-gray-700'}`}>{t.fastMode}</span>
+                          <span className="text-[9px] text-gray-400">{t.fastModeSub}</span>
+                        </div>
+                        <input 
+                          type="checkbox" 
+                          className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500" 
+                          checked={state.isFastMode} 
+                          onChange={(e) => setState(prev => ({ ...prev, isFastMode: e.target.checked, isThinkingMode: e.target.checked ? false : prev.isThinkingMode }))} 
+                        />
+                      </label>
+                      <label className={`flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all border ${state.isThinkingMode ? 'bg-indigo-50 border-indigo-100' : 'hover:bg-gray-50 border-transparent'}`}>
+                        <div className="flex flex-col">
+                          <span className={`text-xs font-bold ${state.isThinkingMode ? 'text-indigo-700' : 'text-gray-700'}`}>{t.thinkingMode}</span>
+                          <span className="text-[9px] text-gray-400">{t.thinkingModeSub}</span>
+                        </div>
+                        <input 
+                          type="checkbox" 
+                          className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500" 
+                          checked={state.isThinkingMode} 
+                          onChange={(e) => setState(prev => ({ ...prev, isThinkingMode: e.target.checked, isFastMode: e.target.checked ? false : prev.isFastMode }))} 
+                        />
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">
-                <label className="text-sm font-medium text-gray-700 cursor-pointer" htmlFor="exclude-code">{t.excludeCode}</label>
-                <input id="exclude-code" type="checkbox" className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500" checked={state.excludeCode} onChange={(e) => setState(prev => ({ ...prev, excludeCode: e.target.checked }))} />
-              </div>
-              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">
-                <label className="text-sm font-medium text-gray-700 cursor-pointer" htmlFor="exclude-urls">{t.excludeUrls}</label>
-                <input id="exclude-urls" type="checkbox" className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500" checked={state.excludeUrls} onChange={(e) => setState(prev => ({ ...prev, excludeUrls: e.target.checked }))} />
-              </div>
-              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">
-                <label className="text-sm font-medium text-gray-700 cursor-pointer" htmlFor="exclude-dates">{t.excludeDates}</label>
-                <input id="exclude-dates" type="checkbox" className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500" checked={state.excludeDates} onChange={(e) => setState(prev => ({ ...prev, excludeDates: e.target.checked }))} />
-              </div>
-            </div>
+
             <div className="space-y-2 p-3 bg-gray-50 rounded-lg border border-gray-200">
               <div className="flex justify-between items-center">
                 <label className="text-sm font-medium text-gray-700">{t.topicIntensity}</label>
@@ -1002,14 +1277,14 @@ const App: React.FC = () => {
             </div>
             {state.appMode === AppMode.ANALYSIS && (
               <>
-                <button onClick={() => setActiveTab(TabType.SUMMARY)} className={`px-6 py-3 text-sm font-semibold transition-all border-b-2 ${activeTab === TabType.SUMMARY ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>{t.summaryTab}</button>
-                <button onClick={() => setActiveTab(TabType.CHAT)} className={`px-6 py-3 text-sm font-semibold transition-all border-b-2 ${activeTab === TabType.CHAT ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>{t.chatTab}</button>
+                <button onClick={() => setState(prev => ({ ...prev, activeTab: TabType.SUMMARY }))} className={`px-6 py-3 text-sm font-semibold transition-all border-b-2 ${state.activeTab === TabType.SUMMARY ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>{t.summaryTab}</button>
+                <button onClick={() => setState(prev => ({ ...prev, activeTab: TabType.CHAT }))} className={`px-6 py-3 text-sm font-semibold transition-all border-b-2 ${state.activeTab === TabType.CHAT ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>{t.chatTab}</button>
               </>
             )}
           </div>
           
           <div className="flex items-center gap-2 pb-1">
-            {activeTab === TabType.SUMMARY && state.summary && (
+            {state.activeTab === TabType.SUMMARY && state.summary && (
               <div className="flex items-center gap-2 mr-2 pr-2 border-r border-gray-200">
                 {state.editMode && (
                   <div className="flex items-center gap-1 mr-2">
@@ -1040,13 +1315,13 @@ const App: React.FC = () => {
                 </button>
               </div>
             )}
-            {activeTab === TabType.SUMMARY && state.summaryHistory.length > 0 && (
+            {state.activeTab === TabType.SUMMARY && state.summaryHistory.length > 0 && (
               <button onClick={() => setShowHistoryModal(true)} className="text-xs bg-gray-50 text-gray-600 hover:bg-gray-100 font-semibold px-4 py-2 rounded-lg transition-all flex items-center gap-1 border border-gray-200">
                 <i className="fas fa-history"></i>
                 {t.historyBtn}
               </button>
             )}
-            {activeTab === TabType.CHAT && (
+            {state.activeTab === TabType.CHAT && (
               <div className="flex items-center gap-2">
                 <div className="relative">
                   <input 
@@ -1086,7 +1361,7 @@ const App: React.FC = () => {
         <div className="flex-1 overflow-hidden relative">
           {state.appMode === AppMode.ANALYSIS ? (
             <div className="h-full overflow-y-auto p-6 md:p-10 custom-scrollbar">
-              {activeTab === TabType.SUMMARY ? (
+              {state.activeTab === TabType.SUMMARY ? (
                 <div className="max-w-4xl mx-auto space-y-6">
                   {!state.summary && !state.isProcessing ? (
                     <div className="flex flex-col items-center justify-center py-20 text-gray-400">
@@ -1105,6 +1380,14 @@ const App: React.FC = () => {
                       <div className="flex justify-between items-start mb-6">
                         <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><i className="fas fa-clipboard-list text-indigo-600"></i>{t.contextSummary}</h2>
                         <div className="flex gap-2">
+                          <button 
+                            onClick={() => handleSpeak(state.summary, 'main-summary')}
+                            className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg transition-colors ${currentlySpeakingId === 'main-summary' ? 'bg-indigo-600 text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}
+                            title={currentlySpeakingId === 'main-summary' ? t.stop : t.speak}
+                          >
+                            <i className={`fas ${currentlySpeakingId === 'main-summary' ? 'fa-stop' : 'fa-volume-up'}`}></i>
+                            {currentlySpeakingId === 'main-summary' ? t.stop : t.speak}
+                          </button>
                           <button onClick={handleExport} className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-semibold rounded-lg transition-colors" title={t.export}><i className="fas fa-file-export"></i>{t.export}</button>
                         </div>
                       </div>
@@ -1125,6 +1408,66 @@ const App: React.FC = () => {
               ) : (
                 <div className="max-w-4xl mx-auto h-full flex flex-col">
                   <div className="flex-1 overflow-y-auto space-y-4 pb-4 custom-scrollbar">
+                    {state.chatSummary && !searchTerm && (
+                      <div className="mb-6 bg-indigo-50/50 border border-indigo-100 rounded-2xl p-6 relative group animate-in fade-in slide-in-from-top-4 duration-500">
+                        <div className="flex items-center justify-between mb-4">
+                          <h4 className="text-xs font-bold text-indigo-600 uppercase tracking-widest flex items-center gap-2">
+                            <i className="fas fa-magic"></i>
+                            {t.chatSummaryTitle}
+                          </h4>
+                          <div className="flex items-center gap-2">
+                            <button 
+                              onClick={() => setShowChatSummaryModal(true)}
+                              className="text-[10px] font-bold text-indigo-400 hover:text-indigo-600 uppercase tracking-widest transition-colors"
+                            >
+                              {t.view}
+                            </button>
+                            <button 
+                              onClick={() => setState(prev => ({ ...prev, chatSummary: null }))}
+                              className="text-[10px] font-bold text-gray-400 hover:text-red-500 uppercase tracking-widest transition-colors"
+                            >
+                              {t.close}
+                            </button>
+                          </div>
+                        </div>
+                        <div className="text-sm text-gray-700 leading-relaxed markdown-body line-clamp-3">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {state.chatSummary}
+                          </ReactMarkdown>
+                        </div>
+                        {state.chatSummary.length > 200 && (
+                          <button 
+                            onClick={() => setShowChatSummaryModal(true)}
+                            className="mt-2 text-[10px] font-bold text-indigo-600 hover:underline uppercase tracking-widest"
+                          >
+                            {t.readMore}
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {messages.length > 0 && !searchTerm && !state.chatSummary && (
+                      <div className="flex justify-center mb-6">
+                        <button 
+                          onClick={handleSummarizeChat} 
+                          disabled={isSummarizingChat}
+                          className="group flex items-center gap-3 px-6 py-3 bg-white border border-indigo-100 rounded-2xl shadow-sm hover:shadow-md hover:border-indigo-200 transition-all animate-in fade-in slide-in-from-top-2 duration-500"
+                        >
+                          <div className={`w-8 h-8 rounded-xl flex items-center justify-center transition-colors ${isSummarizingChat ? 'bg-indigo-100' : 'bg-indigo-50 group-hover:bg-indigo-100'}`}>
+                            {isSummarizingChat ? (
+                              <i className="fas fa-spinner fa-spin text-indigo-600"></i>
+                            ) : (
+                              <i className="fas fa-magic text-indigo-600"></i>
+                            )}
+                          </div>
+                          <div className="text-left">
+                            <p className="text-xs font-bold text-gray-900 uppercase tracking-widest">{t.summarizeChat}</p>
+                            <p className="text-[10px] text-gray-400 font-medium">{t.summarizeChatSubtext}</p>
+                          </div>
+                        </button>
+                      </div>
+                    )}
+
                     {searchTerm && filteredMessages.length > 0 && (
                       <div className="flex items-center justify-between mb-4 px-2">
                         <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest bg-indigo-50 px-2 py-1 rounded">
@@ -1156,7 +1499,19 @@ const App: React.FC = () => {
                             </div>
                           </div>
                           <div className="flex items-center justify-between mt-2 pt-2 border-t border-black/5">
-                            <span className={`text-[10px] block opacity-50`}>{msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                            <div className="flex items-center gap-3">
+                              <span className={`text-[10px] block opacity-50`}>{msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                              {msg.role === 'model' && !msg.isError && (
+                                <button 
+                                  onClick={() => handleSpeak(msg.content, msg.id)}
+                                  className={`text-[10px] font-bold transition-colors flex items-center gap-1 ${currentlySpeakingId === msg.id ? 'text-indigo-600' : 'text-gray-400 hover:text-indigo-600'}`}
+                                  title={currentlySpeakingId === msg.id ? t.stop : t.speak}
+                                >
+                                  <i className={`fas ${currentlySpeakingId === msg.id ? 'fa-stop' : 'fa-volume-up'}`}></i>
+                                  {currentlySpeakingId === msg.id ? t.stop : t.speak}
+                                </button>
+                              )}
+                            </div>
                             {msg.isError && (
                               <div className="flex items-center gap-2">
                                 <button 
@@ -1219,10 +1574,34 @@ const App: React.FC = () => {
                       </div>
                     )}
                     <form onSubmit={handleSendMessage} className="flex gap-2 relative">
-                      <input type="text" placeholder={!state.summary ? t.analyzeFirst : isChatting ? t.thinking : t.chatPlaceholder} className="flex-1 p-4 pr-16 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none text-sm bg-white shadow-sm disabled:bg-gray-50 transition-all" value={inputMessage} onChange={(e) => setInputMessage(e.target.value)} disabled={!state.summary || isChatting} />
-                      <button type="submit" disabled={!state.summary || state.isProcessing || isChatting || !inputMessage.trim()} className="absolute right-2 top-2 bottom-2 bg-indigo-600 text-white px-4 rounded-xl hover:bg-indigo-700 transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[48px]">
-                        {isChatting ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-paper-plane"></i>}
-                      </button>
+                      <div className="flex-1 relative">
+                        <input 
+                          type="text" 
+                          placeholder={!state.summary ? t.analyzeFirst : isChatting ? t.thinking : isTranscribing ? t.transcribing : t.chatPlaceholder} 
+                          className="w-full p-4 pr-24 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none text-sm bg-white shadow-sm disabled:bg-gray-50 transition-all" 
+                          value={inputMessage} 
+                          onChange={(e) => setInputMessage(e.target.value)} 
+                          disabled={!state.summary || isChatting || isTranscribing} 
+                        />
+                        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                          <button 
+                            type="button"
+                            onClick={isRecording ? stopRecording : startRecording}
+                            disabled={!state.summary || isChatting || isTranscribing}
+                            className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${isRecording ? 'bg-red-100 text-red-600 animate-pulse' : 'text-gray-400 hover:bg-gray-100 hover:text-indigo-600'}`}
+                            title={isRecording ? t.stopRecording : t.startRecording}
+                          >
+                            {isTranscribing ? <i className="fas fa-spinner fa-spin"></i> : <i className={`fas ${isRecording ? 'fa-stop' : 'fa-microphone'}`}></i>}
+                          </button>
+                          <button 
+                            type="submit" 
+                            disabled={!state.summary || state.isProcessing || isChatting || !inputMessage.trim() || isTranscribing} 
+                            className="w-10 h-10 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                          >
+                            {isChatting ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-paper-plane"></i>}
+                          </button>
+                        </div>
+                      </div>
                     </form>
                     {!state.summary && <p className="text-center text-[10px] font-medium text-amber-600 mt-2 uppercase tracking-tighter"><i className="fas fa-lock mr-1"></i> {t.chatLock}</p>}
                   </div>
@@ -1404,6 +1783,90 @@ const App: React.FC = () => {
                   onChange={(e) => setState(prev => ({ ...prev, customPersona: e.target.value }))}
                 />
               </div>
+
+              <div className="pt-6 border-t border-gray-100 space-y-4">
+                <h4 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                  <i className="fas fa-key text-indigo-600"></i>
+                  {t.apiManagement}
+                </h4>
+                
+                <div className="space-y-3">
+                  <div className="flex gap-2">
+                    <div className="flex-1 space-y-1">
+                      <input 
+                        type="text" 
+                        placeholder={t.apiLabelPlaceholder}
+                        className="w-full p-2 border border-gray-200 rounded-lg text-xs outline-none focus:ring-1 focus:ring-indigo-500"
+                        value={newApiKeyLabel}
+                        onChange={(e) => setNewApiKeyLabel(e.target.value)}
+                      />
+                      <input 
+                        type="password" 
+                        placeholder={t.apiKeyPlaceholder}
+                        className="w-full p-2 border border-gray-200 rounded-lg text-xs outline-none focus:ring-1 focus:ring-indigo-500"
+                        value={newApiKey}
+                        onChange={(e) => setNewApiKey(e.target.value)}
+                      />
+                    </div>
+                    <button 
+                      onClick={handleAddApiKey}
+                      disabled={!newApiKey.trim()}
+                      className="bg-indigo-600 text-white px-4 rounded-lg text-xs font-bold hover:bg-indigo-700 disabled:opacity-50 transition-all"
+                    >
+                      <i className="fas fa-plus"></i>
+                    </button>
+                  </div>
+
+                  <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar pr-1">
+                    {state.apiKeys.length === 0 ? (
+                      <p className="text-[10px] text-gray-400 italic text-center py-2">{t.noApiKeys}</p>
+                    ) : (
+                      state.apiKeys.map((keyObj, index) => (
+                        <div 
+                          key={index} 
+                          className={`p-3 rounded-xl border transition-all flex items-center justify-between gap-3 ${state.selectedApiKeyIndex === index ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-gray-100'}`}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-xs font-bold text-gray-700 truncate">{keyObj.label}</span>
+                              {state.selectedApiKeyIndex === index && <span className="text-[8px] bg-indigo-600 text-white px-1.5 py-0.5 rounded-full uppercase font-bold tracking-tighter">Active</span>}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <code className="text-[10px] text-gray-500 font-mono truncate bg-gray-50 px-1.5 py-0.5 rounded">
+                                {revealedKeys[index] ? keyObj.key : `${keyObj.key.substring(0, 6)}...${keyObj.key.substring(keyObj.key.length - 4)}`}
+                              </code>
+                              <button 
+                                onClick={() => toggleKeyReveal(index)}
+                                className="text-gray-400 hover:text-indigo-600 transition-colors"
+                                title={revealedKeys[index] ? t.hideKey : t.revealKey}
+                              >
+                                <i className={`fas ${revealedKeys[index] ? 'fa-eye-slash' : 'fa-eye'} text-[10px]`}></i>
+                              </button>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {state.selectedApiKeyIndex !== index && (
+                              <button 
+                                onClick={() => setState(prev => ({ ...prev, selectedApiKeyIndex: index }))}
+                                className="text-[10px] font-bold text-indigo-600 hover:underline uppercase tracking-tighter"
+                              >
+                                {t.selectKey}
+                              </button>
+                            )}
+                            <button 
+                              onClick={() => handleRemoveApiKey(index)}
+                              className="text-gray-400 hover:text-red-500 transition-colors p-1"
+                              title={t.removeKey}
+                            >
+                              <i className="fas fa-trash-alt text-xs"></i>
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
             <div className="p-6 bg-gray-50 flex justify-end">
               <button 
@@ -1493,7 +1956,7 @@ const App: React.FC = () => {
             <div className="p-8 overflow-y-auto custom-scrollbar">
               <div className="prose prose-indigo max-w-none text-gray-700 leading-relaxed markdown-body">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {chatSummary || ''}
+                  {state.chatSummary || ''}
                 </ReactMarkdown>
               </div>
             </div>
