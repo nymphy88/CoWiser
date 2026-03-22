@@ -25,3 +25,4 @@ gemini.ts
 *.sln
 *.sw?
 migrated_prompt_history/prompt_2026-02-18T19:18:26.473Z.json
+,env
