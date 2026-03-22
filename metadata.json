@@ -1,0 +1,5 @@
+{
+  "name": "ContextWhisper",
+  "description": "An intelligent context analyzer that summarizes chat logs and documents with advanced filtering options to exclude code or focus on specific topics.",
+  "requestFramePermissions": []
+}
