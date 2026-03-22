@@ -1,3 +1,4 @@
+import React, { useState } from 'react';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
@@ -1082,29 +1083,14 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col md:flex-row bg-gray-50 text-gray-900">
-      {/* Sidebar */}
-      <aside 
-        style={{ width: isMobile ? '100%' : `${state.sidebarWidth}px` }}
-        className="bg-white border-r border-gray-200 flex flex-col p-6 shadow-sm overflow-y-auto relative group/sidebar"
-      >
-        <div className="flex items-center justify-between mb-8">
-          <div className="flex items-center gap-3">
-            <div className="bg-indigo-600 text-white p-2 rounded-lg">
-              <i className="fas fa-brain text-xl"></i>
-            </div>
-            <h1 className="text-xl font-bold tracking-tight">{t.sidebarTitle}</h1>
-          </div>
-          <div className="flex flex-col items-end gap-2">
-            <div className="flex bg-gray-100 rounded-lg p-1">
-              <button onClick={() => setState(prev => ({ ...prev, language: 'en' }))} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${state.language === 'en' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}>EN</button>
-              <button onClick={() => setState(prev => ({ ...prev, language: 'th' }))} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${state.language === 'th' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}>TH</button>
-            </div>
-            <div className="flex gap-3">
-              <button onClick={() => setShowSettingsModal(true)} className="text-[10px] text-gray-400 hover:text-indigo-600 font-medium transition-colors uppercase tracking-wider"><i className="fas fa-cog mr-1"></i>Settings</button>
-              <button onClick={handleResetAll} className="text-[10px] text-gray-400 hover:text-red-500 font-medium transition-colors uppercase tracking-wider" title="Reset everything">Reset</button>
-            </div>
-          </div>
+    <div className="min-h-screen flex flex-col">
+      {/* Header */}
+      <header className="bg-white shadow-sm p-4">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <h1 className="text-xl font-bold text-indigo-600">
+            <i className="fas fa-microchip mr-2"></i>
+            ContextWhisper
+          </h1>
         </div>
 
         <div className="space-y-6">
@@ -1347,32 +1333,9 @@ const App: React.FC = () => {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden">
-        <nav className="flex items-center justify-between px-6 pt-6 border-b border-gray-200 bg-white">
-          <div className="flex items-center gap-4">
-            <div className="flex bg-gray-100 p-1 rounded-xl mr-4">
-              <button 
-                onClick={() => setState(prev => ({ ...prev, appMode: AppMode.ANALYSIS }))}
-                className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${state.appMode === AppMode.ANALYSIS ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}
-              >
-                <i className="fas fa-search-plus"></i>
-                {t.codeMode.analysisMode}
-              </button>
-              <button 
-                onClick={() => setState(prev => ({ ...prev, appMode: AppMode.CODE }))}
-                className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${state.appMode === AppMode.CODE ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}
-              >
-                <i className="fas fa-code"></i>
-                {t.codeMode.title}
-              </button>
-            </div>
-            {state.appMode === AppMode.ANALYSIS && (
-              <>
-                <button onClick={() => setState(prev => ({ ...prev, activeTab: TabType.SUMMARY }))} className={`px-6 py-3 text-sm font-semibold transition-all border-b-2 ${state.activeTab === TabType.SUMMARY ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>{t.summaryTab}</button>
-                <button onClick={() => setState(prev => ({ ...prev, activeTab: TabType.CHAT }))} className={`px-6 py-3 text-sm font-semibold transition-all border-b-2 ${state.activeTab === TabType.CHAT ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>{t.chatTab}</button>
-              </>
-            )}
-          </div>
+      <main className="flex-grow container mx-auto p-4">
+        <div className="bg-white rounded-xl shadow-md p-8 text-center">
+          <h2 className="text-2xl font-semibold mb-4">Smart Summarizer</h2>
           
           <div className="flex items-center gap-2 pb-1">
             {state.activeTab === TabType.SUMMARY && state.summary && (
@@ -2000,96 +1963,24 @@ const App: React.FC = () => {
               </button>
             </div>
           </div>
-        </div>
-      )}
 
-      {/* History Modal */}
-      {showHistoryModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm transition-opacity">
-          <div className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] animate-in fade-in zoom-in duration-200">
-            <div className="flex items-center justify-between p-6 border-b border-gray-100">
-              <h3 className="text-xl font-bold flex items-center gap-2">
-                <i className="fas fa-history text-indigo-600"></i>
-                {t.historyTitle}
-              </h3>
-              <button onClick={() => setShowHistoryModal(false)} className="text-gray-400 hover:text-gray-600 p-2 rounded-full hover:bg-gray-100 transition-colors">
-                <i className="fas fa-times text-xl"></i>
-              </button>
-            </div>
-            <div className="p-6 overflow-y-auto custom-scrollbar bg-gray-50 space-y-4">
-              {state.summaryHistory.length === 0 ? (
-                <div className="text-center py-20 text-gray-400">
-                  <i className="fas fa-ghost text-4xl mb-4 opacity-20"></i>
-                  <p>{t.historyEmpty}</p>
-                </div>
-              ) : (
-                state.summaryHistory.map((item) => (
-                  <div key={item.id} className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm hover:border-indigo-200 transition-colors">
-                    <div className="flex justify-between items-start mb-3">
-                      <div>
-                        <p className="text-xs font-bold text-indigo-600 uppercase tracking-wider mb-1">
-                          {t.generatedOn}: {item.timestamp.toLocaleString()}
-                        </p>
-                        {item.focusKeywords && (
-                          <p className="text-[10px] text-gray-500 italic">
-                            {t.focusLabel}: {item.focusKeywords}
-                          </p>
-                        )}
-                      </div>
-                      <button 
-                        onClick={() => handleRestoreHistory(item)}
-                        className="px-4 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 transition-all flex items-center gap-1"
-                      >
-                        <i className="fas fa-undo-alt"></i>
-                        {t.restore}
-                      </button>
-                    </div>
-                    <div className="text-sm text-gray-700 line-clamp-3 bg-gray-50 p-3 rounded-lg border border-gray-100 italic">
-                      {item.summary}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-            <div className="p-4 border-t border-gray-100 bg-white flex justify-end">
-              <button onClick={() => setShowHistoryModal(false)} className="px-6 py-2 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200 transition-all">
-                {t.close}
-              </button>
-            </div>
+          <div className="mt-8 markdown-body text-left">
+            <h3>วิธีการใช้งาน</h3>
+            <ul>
+              <li>อัปโหลดไฟล์ PDF หรือข้อความ</li>
+              <li>รอให้ระบบวิเคราะห์เนื้อหา</li>
+              <li>รับบทสรุปอัจฉริยะได้ทันที</li>
+            </ul>
           </div>
         </div>
-      )}
+      </main>
 
-      {/* Chat Summary Modal */}
-      {showChatSummaryModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm transition-opacity">
-          <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh] animate-in fade-in zoom-in duration-200">
-            <div className="flex items-center justify-between p-6 border-b border-gray-100">
-              <h3 className="text-xl font-bold flex items-center gap-2">
-                <i className="fas fa-magic text-indigo-600"></i>
-                {t.chatSummaryTitle}
-              </h3>
-              <button onClick={() => setShowChatSummaryModal(false)} className="text-gray-400 hover:text-gray-600 p-2 rounded-full hover:bg-gray-100 transition-colors">
-                <i className="fas fa-times text-xl"></i>
-              </button>
-            </div>
-            <div className="p-8 overflow-y-auto custom-scrollbar">
-              <div className="prose prose-indigo max-w-none text-gray-700 leading-relaxed markdown-body">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {state.chatSummary || ''}
-                </ReactMarkdown>
-              </div>
-            </div>
-            <div className="p-6 border-t border-gray-100 bg-gray-50 flex justify-end">
-              <button onClick={() => setShowChatSummaryModal(false)} className="px-6 py-2 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-md">
-                {t.close}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Footer */}
+      <footer className="p-4 text-center text-gray-500 text-sm">
+        &copy; 2026 ContextWhisper - Powered by Gemini
+      </footer>
     </div>
   );
-};
+}
 
 export default App;

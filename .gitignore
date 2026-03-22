@@ -11,6 +11,8 @@ node_modules
 dist
 dist-ssr
 *.local
+.env
+gemini.ts
 
 # Editor directories and files
 .vscode/*
@@ -22,3 +24,5 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+migrated_prompt_history/prompt_2026-02-18T19:18:26.473Z.json
+,env

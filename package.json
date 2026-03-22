@@ -18,6 +18,7 @@
     "remark-gfm": "^4.0.1",
     "socket.io": "^4.8.3",
     "socket.io-client": "^4.8.3",
+    "socket.io-parser": "^4.2.6",
     "tsx": "^4.21.0"
   },
   "devDependencies": {
