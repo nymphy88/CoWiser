@@ -113,7 +113,12 @@ const translations = {
     revealKey: 'Reveal Key',
     hideKey: 'Hide Key',
     removeKey: 'Remove Key',
-    selectKey: 'Select this key'
+    selectKey: 'Select this key',
+    aiIntelligence: 'AI Intelligence',
+    precise: 'Precise',
+    creative: 'Creative',
+    thinkingModeMaxTokensNote: 'Max tokens are managed automatically in Thinking Mode.',
+    clearSearch: 'Clear search'
   },
   th: {
     sidebarTitle: 'ContextWhisper',
@@ -222,7 +227,12 @@ const translations = {
     revealKey: 'แสดงคีย์',
     hideKey: 'ซ่อนคีย์',
     removeKey: 'ลบคีย์',
-    selectKey: 'เลือกคีย์นี้'
+    selectKey: 'เลือกคีย์นี้',
+    aiIntelligence: 'ความฉลาดของ AI',
+    precise: 'แม่นยำ',
+    creative: 'สร้างสรรค์',
+    thinkingModeMaxTokensNote: 'จำนวนคำตอบสูงสุดจะถูกจัดการโดยอัตโนมัติในโหมดเน้นคิด',
+    clearSearch: 'ล้างการค้นหา'
   }
 };
 
@@ -399,18 +409,16 @@ const App: React.FC = () => {
     if (state.summary && state.rawContext) {
       geminiService.initChat(state, messages);
     }
-  }, []);
+  }, [state.isThinkingMode, state.isFastMode]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
-      if (showFiltersDropdown && !target.closest('.relative')) {
-        setShowFiltersDropdown(false);
-      }
+      // Removed showFiltersDropdown logic as it now uses a backdrop
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showFiltersDropdown]);
+  }, []);
 
   const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
     if (chatEndRef.current) {
@@ -644,7 +652,9 @@ const App: React.FC = () => {
           complexity: state.complexity,
           topicIntensity: state.topicIntensity,
           excludeUrls: state.excludeUrls,
-          excludeDates: state.excludeDates
+          excludeDates: state.excludeDates,
+          isThinkingMode: state.isThinkingMode,
+          isFastMode: state.isFastMode
         }
       );
       
@@ -694,6 +704,42 @@ const App: React.FC = () => {
     }
   };
 
+  const createWavHeader = (dataLength: number, sampleRate: number = 24000) => {
+    const buffer = new ArrayBuffer(44);
+    const view = new DataView(buffer);
+
+    /* RIFF identifier */
+    view.setUint32(0, 0x52494646, false); // "RIFF"
+    /* file length */
+    view.setUint32(4, 36 + dataLength, true);
+    /* RIFF type */
+    view.setUint32(8, 0x57415645, false); // "WAVE"
+
+    /* format chunk identifier */
+    view.setUint32(12, 0x666d7420, false); // "fmt "
+    /* format chunk length */
+    view.setUint32(16, 16, true);
+    /* sample format (raw) */
+    view.setUint16(20, 1, true); // PCM
+    /* channel count */
+    view.setUint16(22, 1, true); // Mono
+    /* sample rate */
+    view.setUint32(24, sampleRate, true);
+    /* byte rate (sample rate * block align) */
+    view.setUint32(28, sampleRate * 2, true);
+    /* block align (channel count * bytes per sample) */
+    view.setUint16(32, 2, true);
+    /* bits per sample */
+    view.setUint16(34, 16, true);
+
+    /* data chunk identifier */
+    view.setUint32(36, 0x64617461, false); // "data"
+    /* data chunk length */
+    view.setUint32(40, dataLength, true);
+
+    return buffer;
+  };
+
   const handleSpeak = async (text: string, id: string) => {
     if (currentlySpeakingId === id) {
       if (audioPlayerRef.current) {
@@ -708,8 +754,18 @@ const App: React.FC = () => {
       const base64Audio = await geminiService.generateSpeech(text);
       if (!base64Audio) throw new Error("No audio generated");
 
-      const audioBlob = await fetch(`data:audio/wav;base64,${base64Audio}`).then(r => r.blob());
-      const audioUrl = URL.createObjectURL(audioBlob);
+      // Convert base64 to Uint8Array
+      const binaryString = window.atob(base64Audio);
+      const len = binaryString.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      // Add WAV header
+      const header = createWavHeader(len, 24000);
+      const wavBlob = new Blob([header, bytes], { type: 'audio/wav' });
+      const audioUrl = URL.createObjectURL(wavBlob);
       
       if (audioPlayerRef.current) {
         audioPlayerRef.current.pause();
@@ -717,8 +773,16 @@ const App: React.FC = () => {
       
       const audio = new Audio(audioUrl);
       audioPlayerRef.current = audio;
-      audio.onended = () => setCurrentlySpeakingId(null);
-      audio.play();
+      audio.onended = () => {
+        setCurrentlySpeakingId(null);
+        URL.revokeObjectURL(audioUrl);
+      };
+      
+      // Handle play errors
+      audio.play().catch(err => {
+        console.error("Playback error:", err);
+        setCurrentlySpeakingId(null);
+      });
     } catch (error) {
       console.error("TTS error:", error);
       setCurrentlySpeakingId(null);
@@ -1116,104 +1180,131 @@ const App: React.FC = () => {
           <div className="space-y-4">
             <div className="relative">
               <button 
-                onClick={() => setShowFiltersDropdown(!showFiltersDropdown)}
+                onClick={() => setShowFiltersDropdown(true)}
                 className="w-full flex items-center justify-between p-3 bg-white border border-gray-200 rounded-xl text-sm font-semibold text-gray-700 hover:border-indigo-300 transition-all shadow-sm"
               >
                 <div className="flex items-center gap-2">
                   <i className="fas fa-filter text-indigo-600"></i>
                   <span>{t.filtersLabel}</span>
                 </div>
-                <i className={`fas fa-chevron-${showFiltersDropdown ? 'up' : 'down'} text-[10px] text-gray-400`}></i>
+                <i className="fas fa-chevron-right text-[10px] text-gray-400"></i>
               </button>
 
               {showFiltersDropdown && (
-                <div className="absolute top-full left-0 right-0 mt-2 p-4 bg-white border border-gray-100 rounded-2xl shadow-xl z-50 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
-                  <div className="grid grid-cols-1 gap-4">
-                    <div className="space-y-1.5">
-                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider px-1">{t.typeLabel}</label>
-                      <select 
-                        className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500 outline-none transition-all cursor-pointer"
-                        value={state.summaryType}
-                        onChange={(e) => setState(prev => ({ ...prev, summaryType: e.target.value as any }))}
-                      >
-                        {Object.entries(t.types).map(([key, label]) => (
-                          <option key={key} value={key}>{label}</option>
-                        ))}
-                      </select>
+                <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+                  <div 
+                    className="bg-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in duration-200"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="p-5 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+                      <h3 className="text-base font-bold flex items-center gap-2">
+                        <i className="fas fa-filter text-indigo-600"></i>
+                        {t.filtersLabel}
+                      </h3>
+                      <button onClick={() => setShowFiltersDropdown(false)} className="text-gray-400 hover:text-gray-600 p-2 rounded-full hover:bg-gray-100 transition-colors">
+                        <i className="fas fa-times"></i>
+                      </button>
                     </div>
-                    <div className="space-y-1.5">
-                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider px-1">{t.complexityLabel}</label>
-                      <select 
-                        className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500 outline-none transition-all cursor-pointer"
-                        value={state.complexity}
-                        onChange={(e) => setState(prev => ({ ...prev, complexity: e.target.value as any }))}
-                      >
-                        {Object.entries(t.complexities).map(([key, label]) => (
-                          <option key={key} value={key}>{label}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider px-1">{t.outputLangLabel}</label>
-                      <select 
-                        className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500 outline-none transition-all cursor-pointer"
-                        value={state.outputLanguage}
-                        onChange={(e) => setState(prev => ({ ...prev, outputLanguage: e.target.value as any }))}
-                      >
-                        {Object.entries(t.outputLangs).map(([key, label]) => (
-                          <option key={key} value={key}>{label}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="pt-2 border-t border-gray-100 space-y-2">
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider px-1 mb-2">{t.exclusionsLabel}</label>
-                    <div className="grid grid-cols-1 gap-2">
-                      <label className="flex items-center justify-between p-2 hover:bg-gray-50 rounded-lg cursor-pointer transition-colors group">
-                        <span className="text-xs text-gray-600 group-hover:text-indigo-600 transition-colors">{t.excludeCode}</span>
-                        <input type="checkbox" className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500" checked={state.excludeCode} onChange={(e) => setState(prev => ({ ...prev, excludeCode: e.target.checked }))} />
-                      </label>
-                      <label className="flex items-center justify-between p-2 hover:bg-gray-50 rounded-lg cursor-pointer transition-colors group">
-                        <span className="text-xs text-gray-600 group-hover:text-indigo-600 transition-colors">{t.excludeUrls}</span>
-                        <input type="checkbox" className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500" checked={state.excludeUrls} onChange={(e) => setState(prev => ({ ...prev, excludeUrls: e.target.checked }))} />
-                      </label>
-                      <label className="flex items-center justify-between p-2 hover:bg-gray-50 rounded-lg cursor-pointer transition-colors group">
-                        <span className="text-xs text-gray-600 group-hover:text-indigo-600 transition-colors">{t.excludeDates}</span>
-                        <input type="checkbox" className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500" checked={state.excludeDates} onChange={(e) => setState(prev => ({ ...prev, excludeDates: e.target.checked }))} />
-                      </label>
-                    </div>
-                  </div>
-
-                  <div className="pt-2 border-t border-gray-100 space-y-2">
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider px-1 mb-2">AI Intelligence</label>
-                    <div className="grid grid-cols-1 gap-2">
-                      <label className={`flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all border ${state.isFastMode ? 'bg-emerald-50 border-emerald-100' : 'hover:bg-gray-50 border-transparent'}`}>
-                        <div className="flex flex-col">
-                          <span className={`text-xs font-bold ${state.isFastMode ? 'text-emerald-700' : 'text-gray-700'}`}>{t.fastMode}</span>
-                          <span className="text-[9px] text-gray-400">{t.fastModeSub}</span>
+                    
+                    <div className="p-6 space-y-6 overflow-y-auto max-h-[70vh] custom-scrollbar">
+                      <div className="grid grid-cols-1 gap-4">
+                        <div className="space-y-1.5">
+                          <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider px-1">{t.typeLabel}</label>
+                          <select 
+                            className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500 outline-none transition-all cursor-pointer"
+                            value={state.summaryType}
+                            onChange={(e) => setState(prev => ({ ...prev, summaryType: e.target.value as any }))}
+                          >
+                            {Object.entries(t.types).map(([key, label]) => (
+                              <option key={key} value={key}>{label}</option>
+                            ))}
+                          </select>
                         </div>
-                        <input 
-                          type="checkbox" 
-                          className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500" 
-                          checked={state.isFastMode} 
-                          onChange={(e) => setState(prev => ({ ...prev, isFastMode: e.target.checked, isThinkingMode: e.target.checked ? false : prev.isThinkingMode }))} 
-                        />
-                      </label>
-                      <label className={`flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all border ${state.isThinkingMode ? 'bg-indigo-50 border-indigo-100' : 'hover:bg-gray-50 border-transparent'}`}>
-                        <div className="flex flex-col">
-                          <span className={`text-xs font-bold ${state.isThinkingMode ? 'text-indigo-700' : 'text-gray-700'}`}>{t.thinkingMode}</span>
-                          <span className="text-[9px] text-gray-400">{t.thinkingModeSub}</span>
+                        <div className="space-y-1.5">
+                          <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider px-1">{t.complexityLabel}</label>
+                          <select 
+                            className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500 outline-none transition-all cursor-pointer"
+                            value={state.complexity}
+                            onChange={(e) => setState(prev => ({ ...prev, complexity: e.target.value as any }))}
+                          >
+                            {Object.entries(t.complexities).map(([key, label]) => (
+                              <option key={key} value={key}>{label}</option>
+                            ))}
+                          </select>
                         </div>
-                        <input 
-                          type="checkbox" 
-                          className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500" 
-                          checked={state.isThinkingMode} 
-                          onChange={(e) => setState(prev => ({ ...prev, isThinkingMode: e.target.checked, isFastMode: e.target.checked ? false : prev.isFastMode }))} 
-                        />
-                      </label>
+                        <div className="space-y-1.5">
+                          <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider px-1">{t.outputLangLabel}</label>
+                          <select 
+                            className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500 outline-none transition-all cursor-pointer"
+                            value={state.outputLanguage}
+                            onChange={(e) => setState(prev => ({ ...prev, outputLanguage: e.target.value as any }))}
+                          >
+                            {Object.entries(t.outputLangs).map(([key, label]) => (
+                              <option key={key} value={key}>{label}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="pt-4 border-t border-gray-100 space-y-3">
+                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider px-1 mb-1">{t.exclusionsLabel}</label>
+                        <div className="grid grid-cols-1 gap-2">
+                          <label className="flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 rounded-xl cursor-pointer transition-colors group">
+                            <span className="text-xs text-gray-600 group-hover:text-indigo-600 transition-colors">{t.excludeCode}</span>
+                            <input type="checkbox" className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500" checked={state.excludeCode} onChange={(e) => setState(prev => ({ ...prev, excludeCode: e.target.checked }))} />
+                          </label>
+                          <label className="flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 rounded-xl cursor-pointer transition-colors group">
+                            <span className="text-xs text-gray-600 group-hover:text-indigo-600 transition-colors">{t.excludeUrls}</span>
+                            <input type="checkbox" className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500" checked={state.excludeUrls} onChange={(e) => setState(prev => ({ ...prev, excludeUrls: e.target.checked }))} />
+                          </label>
+                          <label className="flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 rounded-xl cursor-pointer transition-colors group">
+                            <span className="text-xs text-gray-600 group-hover:text-indigo-600 transition-colors">{t.excludeDates}</span>
+                            <input type="checkbox" className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500" checked={state.excludeDates} onChange={(e) => setState(prev => ({ ...prev, excludeDates: e.target.checked }))} />
+                          </label>
+                        </div>
+                      </div>
+
+                      <div className="pt-4 border-t border-gray-100 space-y-3">
+                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider px-1 mb-1">{t.aiIntelligence}</label>
+                        <div className="grid grid-cols-1 gap-3">
+                          <label className={`flex items-center justify-between p-3 rounded-xl cursor-pointer transition-all border-2 ${state.isFastMode ? 'bg-emerald-50 border-emerald-200' : 'bg-gray-50 border-transparent hover:border-gray-200'}`}>
+                            <div className="flex flex-col">
+                              <span className={`text-xs font-bold ${state.isFastMode ? 'text-emerald-700' : 'text-gray-700'}`}>{t.fastMode}</span>
+                              <span className="text-[9px] text-gray-400">{t.fastModeSub}</span>
+                            </div>
+                            <input 
+                              type="checkbox" 
+                              className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500" 
+                              checked={state.isFastMode} 
+                              onChange={(e) => setState(prev => ({ ...prev, isFastMode: e.target.checked, isThinkingMode: e.target.checked ? false : prev.isThinkingMode }))} 
+                            />
+                          </label>
+                          <label className={`flex items-center justify-between p-3 rounded-xl cursor-pointer transition-all border-2 ${state.isThinkingMode ? 'bg-indigo-50 border-indigo-200' : 'bg-gray-50 border-transparent hover:border-gray-200'}`}>
+                            <div className="flex flex-col">
+                              <span className={`text-xs font-bold ${state.isThinkingMode ? 'text-indigo-700' : 'text-gray-700'}`}>{t.thinkingMode}</span>
+                              <span className="text-[9px] text-gray-400">{t.thinkingModeSub}</span>
+                            </div>
+                            <input 
+                              type="checkbox" 
+                              className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500" 
+                              checked={state.isThinkingMode} 
+                              onChange={(e) => setState(prev => ({ ...prev, isThinkingMode: e.target.checked, isFastMode: e.target.checked ? false : prev.isFastMode }))} 
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="p-5 bg-gray-50 border-t border-gray-100">
+                      <button 
+                        onClick={() => setShowFiltersDropdown(false)}
+                        className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-md shadow-indigo-200"
+                      >
+                        {t.saveSettings}
+                      </button>
                     </div>
                   </div>
+                  <div className="fixed inset-0 -z-10" onClick={() => setShowFiltersDropdown(false)}></div>
                 </div>
               )}
             </div>
@@ -1336,7 +1427,7 @@ const App: React.FC = () => {
                     <button 
                       onClick={() => setSearchTerm('')}
                       className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
-                      title="Clear search"
+                      title={t.clearSearch}
                     >
                       <i className="fas fa-times text-[10px]"></i>
                     </button>
@@ -1739,6 +1830,30 @@ const App: React.FC = () => {
               </button>
             </div>
             <div className="p-8 space-y-6 overflow-y-auto max-h-[70vh] custom-scrollbar">
+              <div className="grid grid-cols-2 gap-4">
+                <button 
+                  onClick={() => setState(prev => ({ ...prev, isFastMode: !prev.isFastMode, isThinkingMode: false }))}
+                  className={`p-4 rounded-2xl border-2 transition-all text-left flex flex-col gap-1 ${state.isFastMode ? 'border-indigo-600 bg-indigo-50' : 'border-gray-100 bg-white hover:border-gray-200'}`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className={`text-sm font-bold ${state.isFastMode ? 'text-indigo-600' : 'text-gray-700'}`}>{t.fastMode}</span>
+                    <i className={`fas fa-bolt ${state.isFastMode ? 'text-indigo-600' : 'text-gray-300'}`}></i>
+                  </div>
+                  <span className="text-[10px] text-gray-400 leading-tight">{t.fastModeSub}</span>
+                </button>
+
+                <button 
+                  onClick={() => setState(prev => ({ ...prev, isThinkingMode: !prev.isThinkingMode, isFastMode: false }))}
+                  className={`p-4 rounded-2xl border-2 transition-all text-left flex flex-col gap-1 ${state.isThinkingMode ? 'border-indigo-600 bg-indigo-50' : 'border-gray-100 bg-white hover:border-gray-200'}`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className={`text-sm font-bold ${state.isThinkingMode ? 'text-indigo-600' : 'text-gray-700'}`}>{t.thinkingMode}</span>
+                    <i className={`fas fa-brain ${state.isThinkingMode ? 'text-indigo-600' : 'text-gray-300'}`}></i>
+                  </div>
+                  <span className="text-[10px] text-gray-400 leading-tight">{t.thinkingModeSub}</span>
+                </button>
+              </div>
+
               <div className="space-y-2">
                 <div className="flex justify-between items-center">
                   <label className="text-sm font-semibold text-gray-700">{t.temperature}</label>
@@ -1751,12 +1866,12 @@ const App: React.FC = () => {
                   onChange={(e) => setState(prev => ({ ...prev, temperature: parseFloat(e.target.value) }))}
                 />
                 <div className="flex justify-between text-[10px] text-gray-400 uppercase font-medium">
-                  <span>Precise</span>
-                  <span>Creative</span>
+                  <span>{t.precise}</span>
+                  <span>{t.creative}</span>
                 </div>
               </div>
 
-              <div className="space-y-2">
+              <div className={`space-y-2 transition-opacity duration-200 ${state.isThinkingMode ? 'opacity-50 pointer-events-none' : ''}`}>
                 <div className="flex justify-between items-center">
                   <label className="text-sm font-semibold text-gray-700">{t.maxTokens}</label>
                   <input 
@@ -1764,6 +1879,7 @@ const App: React.FC = () => {
                     className="text-xs font-mono bg-indigo-50 text-indigo-600 px-2 py-1 rounded-md border-none outline-none w-20 text-right"
                     value={state.maxOutputTokens}
                     onChange={(e) => setState(prev => ({ ...prev, maxOutputTokens: parseInt(e.target.value) || 2048 }))}
+                    disabled={state.isThinkingMode}
                   />
                 </div>
                 <input 
@@ -1771,7 +1887,11 @@ const App: React.FC = () => {
                   className="w-full accent-indigo-600"
                   value={state.maxOutputTokens}
                   onChange={(e) => setState(prev => ({ ...prev, maxOutputTokens: parseInt(e.target.value) }))}
+                  disabled={state.isThinkingMode}
                 />
+                {state.isThinkingMode && (
+                  <p className="text-[10px] text-indigo-600 italic">{t.thinkingModeMaxTokensNote}</p>
+                )}
               </div>
 
               <div className="space-y-2">
